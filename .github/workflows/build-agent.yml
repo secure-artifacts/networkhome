@@ -57,58 +57,10 @@ jobs:
           path: agent/installer_out/NetMonitor-Agent-Setup.exe
 
   # ══════════════════════════════════════════════════
-  # macOS Intel (x86_64) — macos-13 runner
-  # ══════════════════════════════════════════════════
-  build-macos-intel:
-    runs-on: macos-12
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install deps
-        run: pip install pyinstaller psutil requests pystray Pillow
-
-      - name: Build Intel .app
-        working-directory: agent
-        run: |
-          pyinstaller --windowed \
-            --name "NetMonitor Agent" \
-            --hidden-import pystray._darwin \
-            --hidden-import PIL.ImageFont \
-            --hidden-import PIL.ImageDraw \
-            --hidden-import tkinter \
-            --hidden-import tkinter.simpledialog \
-            agent.py
-
-      - name: Create Intel DMG
-        working-directory: agent
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "NetMonitor Agent" \
-            --window-size 560 340 \
-            --icon-size 128 \
-            --icon "NetMonitor Agent.app" 140 150 \
-            --hide-extension "NetMonitor Agent.app" \
-            --app-drop-link 420 150 \
-            --no-internet-enable \
-            "NetMonitor-Agent-Mac-Intel.dmg" "dist/" || \
-          (cd dist && zip -r ../NetMonitor-Agent-Mac-Intel.zip "NetMonitor Agent.app")
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: NetMonitor-macOS-Intel
-          path: |
-            agent/NetMonitor-Agent-Mac-Intel.dmg
-            agent/NetMonitor-Agent-Mac-Intel.zip
-
-  # ══════════════════════════════════════════════════
   # macOS Apple Silicon (arm64) — macos-latest runner
+  # Intel Mac 用此包亦可通过 Rosetta2 运行
   # ══════════════════════════════════════════════════
-  build-macos-arm:
+  build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +72,7 @@ jobs:
       - name: Install deps
         run: pip install pyinstaller psutil requests pystray Pillow
 
-      - name: Build ARM64 .app
+      - name: Build .app
         working-directory: agent
         run: |
           pyinstaller --windowed \
@@ -132,7 +84,7 @@ jobs:
             --hidden-import tkinter.simpledialog \
             agent.py
 
-      - name: Create ARM64 DMG
+      - name: Create DMG
         working-directory: agent
         run: |
           brew install create-dmg
@@ -144,51 +96,46 @@ jobs:
             --hide-extension "NetMonitor Agent.app" \
             --app-drop-link 420 150 \
             --no-internet-enable \
-            "NetMonitor-Agent-Mac-AppleSilicon.dmg" "dist/" || \
-          (cd dist && zip -r ../NetMonitor-Agent-Mac-AppleSilicon.zip "NetMonitor Agent.app")
+            "NetMonitor-Agent-Mac.dmg" "dist/" || \
+          (cd dist && zip -r ../NetMonitor-Agent-Mac.zip "NetMonitor Agent.app")
 
       - uses: actions/upload-artifact@v4
         with:
-          name: NetMonitor-macOS-AppleSilicon
+          name: NetMonitor-macOS
           path: |
-            agent/NetMonitor-Agent-Mac-AppleSilicon.dmg
-            agent/NetMonitor-Agent-Mac-AppleSilicon.zip
+            agent/NetMonitor-Agent-Mac.dmg
+            agent/NetMonitor-Agent-Mac.zip
 
   # ══════════════════════════════════════════════════
   # GitHub Release（tag 触发）
   # ══════════════════════════════════════════════════
   release:
-    needs: [ build-windows, build-macos-intel, build-macos-arm ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ build-windows, build-macos ]
     runs-on: ubuntu-latest
-    # 即使 Intel job 失败，只要 Windows 或 ARM 成功都发布
-    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && (needs.build-windows.result == 'success' || needs.build-macos-arm.result == 'success') }}
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with: { name: NetMonitor-Agent-Windows-Setup, path: release/ }
       - uses: actions/download-artifact@v4
-        with: { name: NetMonitor-macOS-Intel, path: release/ }
-      - uses: actions/download-artifact@v4
-        with: { name: NetMonitor-macOS-AppleSilicon, path: release/ }
+        with: { name: NetMonitor-macOS, path: release/ }
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             release/NetMonitor-Agent-Setup.exe
-            release/NetMonitor-Agent-Mac-Intel.dmg
-            release/NetMonitor-Agent-Mac-Intel.zip
-            release/NetMonitor-Agent-Mac-AppleSilicon.dmg
-            release/NetMonitor-Agent-Mac-AppleSilicon.zip
+            release/NetMonitor-Agent-Mac.dmg
+            release/NetMonitor-Agent-Mac.zip
           body: |
             ## NetMonitor Agent ${{ github.ref_name }}
 
             | 平台 | 下载 | 适用 |
             |------|------|------|
             | 🪟 Windows | `NetMonitor-Agent-Setup.exe` | 64位 |
-            | 🍎 macOS | `NetMonitor-Agent-Mac-AppleSilicon.dmg` | M1/M2/M3/M4 |
-            | 🍎 macOS | `NetMonitor-Agent-Mac-Intel.dmg` | Intel Mac |
+            | 🍎 macOS | `NetMonitor-Agent-Mac.dmg` | M1/M2/M3/M4 + Intel (via Rosetta 2) |
 
             **Windows：** 双击安装包 → 向导完成后自动启动，出现在系统托盘
             **macOS：** 打开 DMG → 拖拽到 Applications → 右键打开（首次绕过 Gatekeeper）
+            **Intel Mac 用户：** 需先安装 Rosetta 2（`softwareupdate --install-rosetta`）
           generate_release_notes: true

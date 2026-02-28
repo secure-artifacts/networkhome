@@ -29,10 +29,24 @@ from PIL import Image, ImageDraw
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
-# ── 路径 ─────────────────────────────────────────────
-BASE_DIR    = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__))
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-LOG_FILE    = os.path.join(BASE_DIR, "agent.log")
+# ── 用户数据目录（config + log 写入此处，不写 Program Files）───────
+def _get_data_dir() -> str:
+    if IS_WIN:
+        # %APPDATA%\NetMonitor  (e.g. C:\Users\xxx\AppData\Roaming\NetMonitor)
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    elif IS_MAC:
+        # ~/Library/Application Support/NetMonitor
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        # ~/.config/netmonitor
+        base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    d = os.path.join(base, "NetMonitor")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+DATA_DIR    = _get_data_dir()
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+LOG_FILE    = os.path.join(DATA_DIR, "agent.log")
 
 logging.basicConfig(
     filename=LOG_FILE, level=logging.INFO,
