@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设备详情 — NetMonitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <header class="header">
+        <div class="header-inner">
+            <div class="logo">
+                <a href="/" class="back-btn">← 返回总览</a>
+                <span class="logo-text" id="deviceNameTitle">设备详情</span>
+            </div>
+            <div class="header-meta">
+                <span class="ws-indicator" id="wsStatus">● 连接中...</span>
+                <span class="header-time" id="headerTime"></span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- 设备基本信息 -->
+        <section class="device-hero">
+            <div class="device-hero-info">
+                <div class="device-hero-icon" id="heroIcon">💻</div>
+                <div>
+                    <h1 class="device-hero-name" id="heroName">—</h1>
+                    <div class="device-hero-meta">
+                        <span id="heroPlatform">—</span>
+                        <span class="dot-sep">·</span>
+                        <span id="heroIp">—</span>
+                        <span class="dot-sep">·</span>
+                        <span class="status-badge" id="heroBadge">离线</span>
+                    </div>
+                </div>
+            </div>
+            <div class="device-hero-speeds">
+                <div class="realtime-speed up">
+                    <div class="speed-arrow">↑</div>
+                    <div class="speed-val" id="liveUp">0</div>
+                    <div class="speed-unit">上传</div>
+                </div>
+                <div class="realtime-speed down">
+                    <div class="speed-arrow">↓</div>
+                    <div class="speed-val" id="liveDown">0</div>
+                    <div class="speed-unit">下载</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 实时折线图 -->
+        <section class="card chart-card">
+            <h3 class="card-title">实时速度（最近5分钟）</h3>
+            <div class="chart-wrap">
+                <canvas id="realtimeChart"></canvas>
+            </div>
+        </section>
+
+        <!-- ── 历史统计（含日期选择器）── -->
+        <section class="card">
+            <!-- 工具栏：快捷按钮 + 日期范围选择器 -->
+            <div class="history-toolbar">
+                <div class="period-tabs" id="devPeriodTabs">
+                    <button class="tab active" data-period="day">今天</button>
+                    <button class="tab" data-period="yesterday">昨天</button>
+                    <button class="tab" data-period="week">本周</button>
+                    <button class="tab" data-period="month">本月</button>
+                </div>
+                <div class="date-range-wrap">
+                    <label class="date-label">自定义：</label>
+                    <input type="date" id="dateFrom" class="date-input">
+                    <span class="date-to-label">至</span>
+                    <input type="date" id="dateTo" class="date-input">
+                    <button id="applyDateBtn" class="apply-btn">应用</button>
+                </div>
+            </div>
+
+            <!-- 汇总数字 -->
+            <div class="stats-summary" style="margin-bottom:20px">
+                <div class="stat-box up">
+                    <div class="stat-label">累计上传</div>
+                    <div class="stat-val" id="totalUpBytes">—</div>
+                </div>
+                <div class="stat-box down">
+                    <div class="stat-label">累计下载</div>
+                    <div class="stat-val" id="totalDownBytes">—</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">峰值时段 ↑</div>
+                    <div class="stat-val" id="detailPeakUp">—</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">峰值时段 ↓</div>
+                    <div class="stat-val" id="detailPeakDown">—</div>
+                </div>
+            </div>
+
+            <h3 class="card-title">每小时流量趋势</h3>
+            <div class="chart-wrap">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </section>
+
+        <!-- 高峰分析：设备专属 7×24 热力图 -->
+        <section class="card">
+            <h3 class="card-title">设备 7×24 使用热力图（近4周）</h3>
+            <div class="heatmap-legend-row" style="margin-bottom:10px">
+                <span class="hm-leg"><span class="hm-leg-box up"></span>上传</span>
+                <span class="hm-leg"><span class="hm-leg-box down"></span>下载</span>
+                <span class="hm-leg-hint">上半=上传 / 下半=下载</span>
+            </div>
+            <div class="hm-hour-axis" id="devHmHourAxis"></div>
+            <div class="hm-grid" id="devHmGrid">
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/device.js"></script>
+</body>
+
+</html>

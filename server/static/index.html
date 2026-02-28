@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetMonitor — 网络监控总览</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">📡</span>
+        <span class="logo-text">NetMonitor</span>
+      </div>
+      <div class="header-meta">
+        <span class="ws-indicator" id="wsStatus">● 连接中...</span>
+        <span class="header-time" id="headerTime"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- ── 顶部汇总区 ── -->
+    <section class="top-section">
+      <div class="kpi-panel">
+        <div class="kpi-card">
+          <div class="kpi-label">在线设备</div>
+          <div class="kpi-value neutral" id="kpiOnline">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">↑ 总上传</div>
+          <div class="kpi-value up" id="kpiTotalUp">0 bps</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">↓ 总下载</div>
+          <div class="kpi-value down" id="kpiTotalDown">0 bps</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">↑ 峰值上传</div>
+          <div class="kpi-value up" id="kpiPeakUp">0 bps</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">↓ 峰值下载</div>
+          <div class="kpi-value down" id="kpiPeakDown">0 bps</div>
+        </div>
+      </div>
+      <div class="peak-chart-card">
+        <div class="peak-chart-title">
+          全网实时流量 · 近 5 分钟
+          <span class="chart-legend">
+            <span class="leg-dot up"></span>上传
+            <span class="leg-dot down"></span>下载
+          </span>
+        </div>
+        <div class="peak-chart-wrap">
+          <canvas id="peakChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 设备数据表格 ── -->
+    <section class="table-section">
+      <div class="table-header-row">
+        <h2 class="section-title">设备实时数据</h2>
+        <div class="table-controls">
+          <label class="toggle-wrap" title="开启后按当前速度自动排名">
+            <span class="toggle-label">动态排名</span>
+            <label class="toggle">
+              <input type="checkbox" id="dynSortToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="device-table" id="deviceTable">
+          <thead>
+            <tr>
+              <th class="col-rank">#</th>
+              <th class="col-name sortable" data-sort="name">设备名称 <span class="sort-icon">⇅</span></th>
+              <th class="col-status">状态</th>
+              <th class="col-speed up sortable" data-sort="up">↑ 上传速度 <span class="sort-icon">⇅</span></th>
+              <th class="col-speed down sortable" data-sort="down">↓ 下载速度 <span class="sort-icon">⇅</span></th>
+              <th class="col-spark">趋势（近30s）</th>
+            </tr>
+          </thead>
+          <tbody id="deviceTableBody">
+            <tr class="loading-row">
+              <td colspan="14">
+                <div class="loading-state">
+                  <div class="spinner"></div><span>正在加载...</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── 全网 7×24 热力图 ── -->
+    <section class="heatmap-section">
+      <div class="heatmap-title-row">
+        <h2 class="section-title">全网使用热力图 · 一周 × 24小时</h2>
+        <div class="heatmap-legend-row">
+          <span class="hm-leg"><span class="hm-leg-box up"></span>上传流量</span>
+          <span class="hm-leg"><span class="hm-leg-box down"></span>下载流量</span>
+          <span class="hm-leg-hint">每格上半=上传 / 下半=下载</span>
+        </div>
+      </div>
+      <!-- Hour axis -->
+      <div class="hm-hour-axis" id="hmHourAxis"></div>
+      <!-- Grid -->
+      <div class="hm-grid" id="hmGrid">
+        <div class="loading-state" style="padding:40px;grid-column:1/-1">
+          <div class="spinner"></div><span>加载热力图...</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+
+</html>
