@@ -1,4 +1,4 @@
-name: Build Agent Executables
+name: Build Agent Installers
 
 on:
   push:
@@ -7,7 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Windows .exe ────────────────────────────────
+  # ══════════════════════════════════════════════════
+  # Windows: PyInstaller → Inno Setup installer .exe
+  # ══════════════════════════════════════════════════
   build-windows:
     runs-on: windows-latest
     steps:
@@ -17,13 +19,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python deps
         run: pip install pyinstaller psutil requests pystray Pillow
 
-      - name: Build Windows .exe (no console)
+      - name: Build .exe with PyInstaller (no console)
         working-directory: agent
         run: |
-          pyinstaller --onefile --windowed --name "NetMonitor-Agent-Win" `
+          pyinstaller --onefile --windowed `
+            --name "NetMonitor-Agent" `
             --hidden-import pystray._win32 `
             --hidden-import PIL.ImageFont `
             --hidden-import PIL.ImageDraw `
@@ -32,14 +35,33 @@ jobs:
             --hidden-import tkinter.simpledialog `
             agent.py
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: NetMonitor-Agent-Windows
-          path: agent/dist/NetMonitor-Agent-Win.exe
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
 
-  # ── macOS binary ────────────────────────────────
+      - name: Download Chinese language file for Inno Setup
+        working-directory: agent
+        run: |
+          $iss_lang_dir = "C:\Program Files (x86)\Inno Setup 6\Languages"
+          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+          Invoke-WebRequest -Uri $url -OutFile "$iss_lang_dir\ChineseSimplified.isl"
+
+      - name: Compile Inno Setup installer
+        working-directory: agent
+        run: |
+          New-Item -ItemType Directory -Force -Path installer_out | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetMonitor-Agent-Windows-Setup
+          path: agent/installer_out/NetMonitor-Agent-Setup.exe
+
+  # ══════════════════════════════════════════════════
+  # macOS: PyInstaller universal2 → .app → DMG
+  # ══════════════════════════════════════════════════
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-latest   # Apple Silicon (M1) runner
     steps:
       - uses: actions/checkout@v4
 
@@ -47,26 +69,59 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Python deps
         run: pip install pyinstaller psutil requests pystray Pillow
 
-      - name: Build macOS binary (no console)
+      - name: Build universal2 .app bundle
         working-directory: agent
         run: |
-          pyinstaller --onefile --windowed --name "NetMonitor-Agent-Mac" \
+          pyinstaller --windowed \
+            --name "NetMonitor Agent" \
+            --target-arch universal2 \
             --hidden-import pystray._darwin \
             --hidden-import PIL.ImageFont \
             --hidden-import PIL.ImageDraw \
             --hidden-import tkinter \
             --hidden-import tkinter.simpledialog \
             agent.py
+          # Verify
+          lipo -info "dist/NetMonitor Agent.app/Contents/MacOS/NetMonitor Agent" || true
 
-      - uses: actions/upload-artifact@v4
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG (drag-to-Applications style)
+        working-directory: agent
+        run: |
+          create-dmg \
+            --volname "NetMonitor Agent" \
+            --volicon "" \
+            --window-pos 200 120 \
+            --window-size 580 360 \
+            --icon-size 128 \
+            --icon "NetMonitor Agent.app" 140 160 \
+            --hide-extension "NetMonitor Agent.app" \
+            --app-drop-link 430 160 \
+            --no-internet-enable \
+            "NetMonitor-Agent-Mac.dmg" \
+            "dist/" \
+          || true
+          # Fallback: create plain zip if DMG fails
+          if [ ! -f "NetMonitor-Agent-Mac.dmg" ]; then
+            cd dist && zip -r ../NetMonitor-Agent-Mac.zip "NetMonitor Agent.app"
+          fi
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: NetMonitor-Agent-macOS
-          path: agent/dist/NetMonitor-Agent-Mac
+          name: NetMonitor-Agent-macOS-DMG
+          path: |
+            agent/NetMonitor-Agent-Mac.dmg
+            agent/NetMonitor-Agent-Mac.zip
 
-  # ── GitHub Release (tag 触发) ───────────────────
+  # ══════════════════════════════════════════════════
+  # GitHub Release（仅 tag 触发）
+  # ══════════════════════════════════════════════════
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [ build-windows, build-macos ]
@@ -75,26 +130,44 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: NetMonitor-Agent-Windows, path: release/ }
+        with:
+          name: NetMonitor-Agent-Windows-Setup
+          path: release/
 
       - uses: actions/download-artifact@v4
-        with: { name: NetMonitor-Agent-macOS, path: release/ }
+        with:
+          name: NetMonitor-Agent-macOS-DMG
+          path: release/
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/NetMonitor-Agent-Win.exe
-            release/NetMonitor-Agent-Mac
+            release/NetMonitor-Agent-Setup.exe
+            release/NetMonitor-Agent-Mac.dmg
+            release/NetMonitor-Agent-Mac.zip
           body: |
             ## NetMonitor Agent ${{ github.ref_name }}
 
-            | 平台 | 文件 | 说明 |
-            |------|------|------|
-            | 🪟 Windows | `NetMonitor-Agent-Win.exe` | 双击运行，无控制台 |
-            | 🍎 macOS | `NetMonitor-Agent-Mac` | `chmod +x` 后运行 |
+            ### 下载安装包
 
-            **功能：**
-            - 系统托盘图标（绿=连接 / 黄=连接中 / 红=断开）
-            - 首次运行自动发现服务器（UDP），失败时手动输入
-            - 右键菜单可修改设备名称、服务器地址、开机自启、退出
+            | 平台 | 文件 | 架构 |
+            |------|------|------|
+            | 🪟 Windows | `NetMonitor-Agent-Setup.exe` | x64 |
+            | 🍎 macOS | `NetMonitor-Agent-Mac.dmg` | Intel + Apple Silicon (universal) |
+
+            ### Windows 安装说明
+            1. 双击 `NetMonitor-Agent-Setup.exe`
+            2. 可选：勾选「创建桌面快捷方式」和「开机启动」
+            3. 安装完成后自动启动，出现在系统托盘
+
+            ### macOS 安装说明
+            1. 打开 `NetMonitor-Agent-Mac.dmg`
+            2. 将 **NetMonitor Agent** 拖入 **Applications** 文件夹
+            3. 首次运行需右键→打开（绕过 Gatekeeper）
+            4. 出现在菜单栏（系统托盘）
+
+            ### 功能
+            - 🔍 自动扫描局域网服务器（UDP），30 秒后未找到弹出手动输入框
+            - 🟢 系统托盘图标（绿=连接/黄=搜索/红=断开）
+            - 📋 右键菜单：修改设备名称 / 服务器地址 / 开机自启 / 退出
           generate_release_notes: true
