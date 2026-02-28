@@ -30,17 +30,24 @@ function startClock() {
 
 // ── Realtime chart ────────────────────────────────
 const MAX_RT = 300;
-let rtUpData = Array(MAX_RT).fill(null);
-let rtDownData = Array(MAX_RT).fill(null);
-const rtLabels = Array(MAX_RT).fill('');
+let rtUpData = [];
+let rtDownData = [];
 let realtimeChart = null;
+let realtimeWindowSec = 300;
 
 function initRealtimeChart() {
+    const saved = localStorage.getItem('nm_dev_rt_default');
+    if (saved) {
+        realtimeWindowSec = parseInt(saved) || 300;
+        const chk = document.getElementById('devRtDefault');
+        if (chk) chk.checked = true;
+    }
+    updateRealtimeTabs();
+
     const ctx = document.getElementById('realtimeChart').getContext('2d');
     realtimeChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: rtLabels,
             datasets: [
                 { label: '上传', data: rtUpData, borderColor: '#22d3ee', borderWidth: 1.5, fill: true, backgroundColor: 'rgba(34,211,238,0.08)', tension: 0.4, pointRadius: 0 },
                 { label: '下载', data: rtDownData, borderColor: '#a78bfa', borderWidth: 1.5, fill: true, backgroundColor: 'rgba(167,139,250,0.08)', tension: 0.4, pointRadius: 0 }
@@ -52,34 +59,118 @@ function initRealtimeChart() {
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
-                tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmtSpeed(c.raw)}` } }
+                tooltip: {
+                    callbacks: {
+                        title: c => new Date(c[0].raw.x).toLocaleString('zh-CN'),
+                        label: c => `${c.dataset.label}: ${fmtSpeed(c.raw.y)}`
+                    }
+                }
             },
             scales: {
-                x: { display: false },
+                x: {
+                    type: 'linear',
+                    display: false,
+                    min: Date.now() - realtimeWindowSec * 1000,
+                    max: Date.now()
+                },
                 y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', callback: v => fmtSpeed(v) } }
             }
         }
     });
+
+    loadRealtimeHistory();
 }
 
-async function loadRealtimeHistory() {
+function updateRealtimeTabs() {
+    document.querySelectorAll('#devRealtimeTabs .peak-tab').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.sec) === realtimeWindowSec);
+    });
+}
+
+function setRealtimeWindow(sec) {
+    if (realtimeWindowSec === sec) return;
+    realtimeWindowSec = sec;
+    updateRealtimeTabs();
+
+    // Clear custom date inputs
+    const fromInput = document.getElementById('devRtDateFrom');
+    const toInput = document.getElementById('devRtDateTo');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    loadRealtimeHistory();
+}
+
+function saveRtDefault() {
+    const chk = document.getElementById('devRtDefault');
+    if (chk?.checked) {
+        localStorage.setItem('nm_dev_rt_default', realtimeWindowSec);
+    } else {
+        localStorage.removeItem('nm_dev_rt_default');
+    }
+}
+
+async function loadRealtimeHistory(forceFromTs = 0, forceToTs = 0) {
     try {
-        const res = await fetch(`${API_BASE}/realtime/${deviceId}?seconds=300`);
+        let fetchUrl = realtimeWindowSec === 300
+            ? `${API_BASE}/realtime/${deviceId}?seconds=300`
+            : `${API_BASE}/realtime/aggregate/${deviceId}?seconds=${realtimeWindowSec}`;
+
+        if (forceFromTs > 0 && forceToTs > 0) {
+            fetchUrl = `${API_BASE}/realtime/aggregate/${deviceId}?from_ts=${forceFromTs}&to_ts=${forceToTs}`;
+        }
+
+        const res = await fetch(fetchUrl);
         const json = await res.json();
-        json.data.forEach(row => {
-            rtUpData.push(row.upload_bps);
-            rtDownData.push(row.download_bps);
-            rtLabels.push('');
-        });
-        while (rtUpData.length > MAX_RT) { rtUpData.shift(); rtDownData.shift(); rtLabels.shift(); }
+        const data = json.data || [];
+
+        rtUpData = data.map(d => ({ x: d.timestamp * 1000, y: d.upload_bps }));
+        rtDownData = data.map(d => ({ x: d.timestamp * 1000, y: d.download_bps }));
+
+        realtimeChart.data.datasets[0].data = rtUpData;
+        realtimeChart.data.datasets[1].data = rtDownData;
+
+        const nowMs = Date.now();
+        if (forceFromTs > 0 && forceToTs > 0) {
+            realtimeChart.options.scales.x.min = forceFromTs * 1000;
+            realtimeChart.options.scales.x.max = forceToTs * 1000;
+        } else {
+            realtimeChart.options.scales.x.min = nowMs - realtimeWindowSec * 1000;
+            realtimeChart.options.scales.x.max = nowMs;
+        }
+
         realtimeChart.update('none');
     } catch (e) { console.warn('RT history failed', e); }
 }
 
+function applyDevRtCustomDate() {
+    const fv = document.getElementById('devRtDateFrom')?.value;
+    const tv = document.getElementById('devRtDateTo')?.value;
+    if (!fv) return;
+    const fromTs = Math.floor(new Date(fv + 'T00:00:00').getTime() / 1000);
+    const toTs = tv ? Math.floor(new Date(tv + 'T23:59:59').getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+    // Clear tabs selection
+    document.querySelectorAll('#devRealtimeTabs .peak-tab').forEach(b => b.classList.remove('active'));
+    realtimeWindowSec = 0;
+
+    loadRealtimeHistory(fromTs, toTs);
+}
+
 function pushRealtimePoint(up, down) {
-    rtUpData.push(up); rtDownData.push(down); rtLabels.push('');
-    if (rtUpData.length > MAX_RT) { rtUpData.shift(); rtDownData.shift(); rtLabels.shift(); }
-    realtimeChart.update('none');
+    if (realtimeWindowSec > 0) {
+        const nowMs = Date.now();
+        rtUpData.push({ x: nowMs, y: up });
+        rtDownData.push({ x: nowMs, y: down });
+
+        const minMs = nowMs - realtimeWindowSec * 1000;
+        while (rtUpData.length > 0 && rtUpData[0].x < minMs - 60000) rtUpData.shift();
+        while (rtDownData.length > 0 && rtDownData[0].x < minMs - 60000) rtDownData.shift();
+
+        realtimeChart.options.scales.x.min = minMs;
+        realtimeChart.options.scales.x.max = nowMs;
+        realtimeChart.update('none');
+    }
 }
 
 // ── History chart ─────────────────────────────────

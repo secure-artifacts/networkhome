@@ -71,25 +71,49 @@ sys.path.insert(0, _base)
 
 
 # ── 获取本机 LAN IP ──────────────────────────────────────
+# 已知虚拟/VPN 网卡关键词（名称或描述包含这些的跳过）
+_VIRTUAL_KW = {
+    'loopback', 'virtual', 'vmware', 'virtualbox', 'vbox',
+    'hyper-v', 'wsl', 'docker', 'zerotier', 'tailscale',
+    'nordvpn', 'expressvpn', 'vpn', 'tap', 'tun',
+    'vethernet', 'pseudo', 'teredo', 'isatap', '6to4',
+}
+
+def _is_virtual(iface_name: str) -> bool:
+    n = iface_name.lower()
+    return any(kw in n for kw in _VIRTUAL_KW)
+
 def get_lan_ips() -> list[str]:
-    ips = []
+    """
+    返回本机真实局域网 IP（过滤虚拟/VPN 网卡），
+    优先顺序：192.168.x.x → 172.16-31.x.x → 10.x.x.x
+    """
+    buckets = {0: [], 1: [], 2: []}  # 0=192.168, 1=172, 2=10
     try:
         import psutil
         for iface, addrs in psutil.net_if_addrs().items():
+            if _is_virtual(iface):
+                continue
             for addr in addrs:
                 if addr.family == socket.AF_INET:
                     ip = addr.address
-                    # 只取局域网地址
-                    if ip.startswith(("192.168.", "10.", "172.")):
-                        ips.append(ip)
+                    if ip.startswith('192.168.'):
+                        buckets[0].append(ip)
+                    elif ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31:
+                        buckets[1].append(ip)
+                    elif ip.startswith('10.'):
+                        buckets[2].append(ip)
     except Exception:
         try:
             ip = socket.gethostbyname(socket.gethostname())
-            if not ip.startswith("127."):
-                ips.append(ip)
+            if not ip.startswith('127.'):
+                return [ip]
         except Exception:
             pass
-    return ips or ["127.0.0.1"]
+
+    # 返回优先级最高的那组，三组都有就按顺序合并
+    result = buckets[0] or buckets[1] or buckets[2]
+    return result or ['127.0.0.1']
 
 def get_primary_url() -> str:
     ips = get_lan_ips()

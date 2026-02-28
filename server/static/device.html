@@ -57,7 +57,34 @@
 
         <!-- 实时折线图 -->
         <section class="card chart-card">
-            <h3 class="card-title">实时速度（最近5分钟）</h3>
+            <div class="peak-chart-title" style="margin-bottom: 12px; font-weight: 600;">
+                <span>实时网络速度</span>
+                <div class="peak-time-tabs" id="devRealtimeTabs">
+                    <button class="peak-tab active" data-sec="300" onclick="setRealtimeWindow(300)">5分钟</button>
+                    <button class="peak-tab" data-sec="1800" onclick="setRealtimeWindow(1800)">30分钟</button>
+                    <button class="peak-tab" data-sec="3600" onclick="setRealtimeWindow(3600)">1小时</button>
+                    <button class="peak-tab" data-sec="21600" onclick="setRealtimeWindow(21600)">6小时</button>
+                    <button class="peak-tab" data-sec="43200" onclick="setRealtimeWindow(43200)">12小时</button>
+                    <button class="peak-tab" data-sec="86400" onclick="setRealtimeWindow(86400)">24小时</button>
+                    <button class="peak-tab" data-sec="259200" onclick="setRealtimeWindow(259200)">3天</button>
+                    <button class="peak-tab" data-sec="604800" onclick="setRealtimeWindow(604800)">7天</button>
+                    <button class="peak-tab" data-sec="2592000" onclick="setRealtimeWindow(2592000)">30天</button>
+                    <label class="peak-default-wrap" title="勾选后将此时间窗口设为默认">
+                        <input type="checkbox" id="devRtDefault" onchange="saveRtDefault()">
+                        <span>默认</span>
+                    </label>
+                    <div class="peak-date-picker"
+                        style="display:flex; align-items:center; gap:4px; margin-left:8px; border-left:1px solid rgba(255,255,255,0.1); padding-left:8px;">
+                        <input type="date" id="devRtDateFrom" class="date-input"
+                            style="font-size:0.72rem; padding:2px 4px; border-radius:4px; height:22px; width:auto; border:none;">
+                        <span style="color:#64748b; font-size:0.75rem;">-</span>
+                        <input type="date" id="devRtDateTo" class="date-input"
+                            style="font-size:0.72rem; padding:2px 4px; border-radius:4px; height:22px; width:auto; border:none;"
+                            title="不选则表示自选定日起至今">
+                        <button class="peak-tab" onclick="applyDevRtCustomDate()" style="padding:2px 6px;">查看</button>
+                    </div>
+                </div>
+            </div>
             <div class="chart-wrap">
                 <canvas id="realtimeChart"></canvas>
             </div>
@@ -125,7 +152,7 @@
         </section>
     </main>
 
-    <script src="/static/device.js"></script>
+    <script src="/static/device.js?v=4"></script>
 </body>
 
 </html>

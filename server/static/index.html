@@ -27,7 +27,7 @@
 
   <main class="main">
 
-    <!-- ── 顶部汇总区 ── -->
+    <!-- ① KPI + 实时流量图 -->
     <section class="top-section">
       <div class="kpi-panel">
         <div class="kpi-card">
@@ -53,7 +53,33 @@
       </div>
       <div class="peak-chart-card">
         <div class="peak-chart-title">
-          全网实时流量 · 近 5 分钟
+          <span>全网实时流量</span>
+          <!-- 时间范围切换 -->
+          <div class="peak-time-tabs" id="peakTimeTabs">
+            <button class="peak-tab active" data-sec="300" onclick="setPeakWindow(300)">5分钟</button>
+            <button class="peak-tab" data-sec="1800" onclick="setPeakWindow(1800)">30分钟</button>
+            <button class="peak-tab" data-sec="3600" onclick="setPeakWindow(3600)">1小时</button>
+            <button class="peak-tab" data-sec="21600" onclick="setPeakWindow(21600)">6小时</button>
+            <button class="peak-tab" data-sec="43200" onclick="setPeakWindow(43200)">12小时</button>
+            <button class="peak-tab" data-sec="86400" onclick="setPeakWindow(86400)">24小时</button>
+            <button class="peak-tab" data-sec="259200" onclick="setPeakWindow(259200)">3天</button>
+            <button class="peak-tab" data-sec="604800" onclick="setPeakWindow(604800)">7天</button>
+            <button class="peak-tab" data-sec="2592000" onclick="setPeakWindow(2592000)">30天</button>
+            <label class="peak-default-wrap" title="勾选后将此时间窗口设为默认">
+              <input type="checkbox" id="peakDefaultChk" onchange="savePeakDefault()">
+              <span>默认</span>
+            </label>
+            <div class="peak-date-picker"
+              style="display:flex; align-items:center; gap:4px; margin-left:8px; border-left:1px solid rgba(255,255,255,0.1); padding-left:8px;">
+              <input type="date" id="peakDateFrom" class="date-input"
+                style="font-size:0.72rem; padding:2px 4px; border-radius:4px; height:22px; width:auto; border:none;">
+              <span style="color:#64748b; font-size:0.75rem;">-</span>
+              <input type="date" id="peakDateTo" class="date-input"
+                style="font-size:0.72rem; padding:2px 4px; border-radius:4px; height:22px; width:auto; border:none;"
+                title="不选则表示自选定日起至今">
+              <button class="peak-tab" onclick="applyPeakCustomDate()" style="padding:2px 6px;">查看</button>
+            </div>
+          </div>
           <span class="chart-legend">
             <span class="leg-dot up"></span>上传
             <span class="leg-dot down"></span>下载
@@ -65,7 +91,136 @@
       </div>
     </section>
 
-    <!-- ── 设备数据表格 ── -->
+    <!-- 1.5 全网历史统计（含日期选择器） -->
+    <section class="card history-section" style="margin-bottom: 24px;">
+      <div class="history-toolbar">
+        <div class="history-title"
+          style="font-weight: 600; font-size: 1.1rem; color: #f8fafc; display: flex; align-items: center; margin-right: auto;">
+          全网历史统计</div>
+        <div class="period-tabs" id="globalPeriodTabs">
+          <button class="tab active" data-period="day">今天</button>
+          <button class="tab" data-period="yesterday">昨天</button>
+          <button class="tab" data-period="week">本周</button>
+          <button class="tab" data-period="month">本月</button>
+        </div>
+        <div class="date-range-wrap">
+          <label class="date-label">自定义：</label>
+          <input type="date" id="globalDateFrom" class="date-input">
+          <span class="date-to-label">至</span>
+          <input type="date" id="globalDateTo" class="date-input">
+          <button id="applyGlobalDateBtn" class="apply-btn">应用</button>
+        </div>
+      </div>
+
+      <!-- 汇总数字 -->
+      <div class="stats-summary" style="margin-bottom:20px">
+        <div class="stat-box up">
+          <div class="stat-label">累计上传</div>
+          <div class="stat-val" id="globalTotalUpBytes">—</div>
+        </div>
+        <div class="stat-box down">
+          <div class="stat-label">累计下载</div>
+          <div class="stat-val" id="globalTotalDownBytes">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">峰值时段 ↑</div>
+          <div class="stat-val" id="globalDetailPeakUp">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">峰值时段 ↓</div>
+          <div class="stat-val" id="globalDetailPeakDown">—</div>
+        </div>
+      </div>
+
+      <h3 class="card-title" style="margin-bottom: 12px; font-size: 0.95rem; color: #94a3b8;">每小时流量趋势</h3>
+      <div class="chart-wrap" style="height: 240px; position: relative;">
+        <canvas id="globalHistoryChart"></canvas>
+      </div>
+    </section>
+
+    <!-- ② 全网 7×24 热力图 -->
+    <section class="heatmap-section">
+      <div class="heatmap-title-row">
+        <h2 class="section-title">全网使用热力图 · 一周 × 24小时</h2>
+        <div class="heatmap-legend-row">
+          <span class="hm-leg"><span class="hm-leg-box up"></span>上传流量</span>
+          <span class="hm-leg"><span class="hm-leg-box down"></span>下载流量</span>
+          <span class="hm-leg-hint">每格上半=上传 / 下半=下载</span>
+        </div>
+      </div>
+      <!-- Hour axis -->
+      <div class="hm-hour-axis" id="hmHourAxis"></div>
+      <!-- Grid -->
+      <div class="hm-grid" id="hmGrid">
+        <div class="loading-state" style="padding:40px;grid-column:1/-1">
+          <div class="spinner"></div><span>加载热力图...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ③ 月度日历热点图 -->
+    <section class="cal-section" id="calSection">
+      <div class="cal-header-row">
+        <h2 class="section-title">月度流量热点图</h2>
+        <div class="cal-controls">
+          <div class="cal-mode-tabs">
+            <button class="cal-tab active" id="calTabUp" onclick="setCalMode('up')">↑ 上传</button>
+            <button class="cal-tab" id="calTabDown" onclick="setCalMode('down')">↓ 下载</button>
+          </div>
+          <div class="cal-nav">
+            <button class="cal-nav-btn" onclick="shiftCalMonth(-1)">‹</button>
+            <span class="cal-month-label" id="calMonthLabel">—</span>
+            <button class="cal-nav-btn" onclick="shiftCalMonth(1)">›</button>
+          </div>
+          <button class="cal-nav-btn" onclick="loadCalendar()" title="刷新">↺</button>
+        </div>
+      </div>
+      <div class="cal-body">
+        <div class="cal-grid-wrap">
+          <div class="cal-day-headers">
+            <span>一</span><span>二</span><span>三</span><span>四</span>
+            <span>五</span><span>六</span><span>日</span>
+          </div>
+          <div class="cal-grid" id="calGrid">
+            <div class="loading-state" style="grid-column:1/-1;padding:40px">
+              <div class="spinner"></div><span>加载中...</span>
+            </div>
+          </div>
+        </div>
+        <div class="cal-summary">
+          <div class="cal-sum-title">月度汇总</div>
+          <div class="cal-sum-item">
+            <span class="cal-sum-label">月总上传</span>
+            <span class="cal-sum-val up" id="calMonthUp">—</span>
+          </div>
+          <div class="cal-sum-item">
+            <span class="cal-sum-label">月总下载</span>
+            <span class="cal-sum-val down" id="calMonthDown">—</span>
+          </div>
+          <div class="cal-sum-item">
+            <span class="cal-sum-label">日均上传</span>
+            <span class="cal-sum-val up" id="calDayAvgUp">—</span>
+          </div>
+          <div class="cal-sum-item">
+            <span class="cal-sum-label">日均下载</span>
+            <span class="cal-sum-val down" id="calDayAvgDown">—</span>
+          </div>
+          <div class="cal-sum-item">
+            <span class="cal-sum-label">峰值日</span>
+            <span class="cal-sum-val" id="calPeakDay">—</span>
+          </div>
+          <div class="cal-legend">
+            <div class="cal-leg-row">
+              <span>少</span>
+              <span class="cal-leg-gradient" id="calLegGrad"></span>
+              <span>多</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ④ 设备数据表格（最后） -->
     <section class="table-section">
       <div class="table-header-row">
         <h2 class="section-title">设备实时数据</h2>
@@ -105,29 +260,9 @@
       </div>
     </section>
 
-    <!-- ── 全网 7×24 热力图 ── -->
-    <section class="heatmap-section">
-      <div class="heatmap-title-row">
-        <h2 class="section-title">全网使用热力图 · 一周 × 24小时</h2>
-        <div class="heatmap-legend-row">
-          <span class="hm-leg"><span class="hm-leg-box up"></span>上传流量</span>
-          <span class="hm-leg"><span class="hm-leg-box down"></span>下载流量</span>
-          <span class="hm-leg-hint">每格上半=上传 / 下半=下载</span>
-        </div>
-      </div>
-      <!-- Hour axis -->
-      <div class="hm-hour-axis" id="hmHourAxis"></div>
-      <!-- Grid -->
-      <div class="hm-grid" id="hmGrid">
-        <div class="loading-state" style="padding:40px;grid-column:1/-1">
-          <div class="spinner"></div><span>加载热力图...</span>
-        </div>
-      </div>
-    </section>
-
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 
 </html>

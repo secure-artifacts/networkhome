@@ -52,18 +52,25 @@ function startClock() {
 // PEAK CHART (top right, all-device aggregate)
 // ═══════════════════════════════════════════════════
 const PEAK_MAX = 300;
-const peakUpData = Array(PEAK_MAX).fill(null);
-const peakDownData = Array(PEAK_MAX).fill(null);
-const peakLabels = Array(PEAK_MAX).fill('');
+let peakUpData = [];
+let peakDownData = [];
 let peakChart = null;
 let sessionPeakUp = 0, sessionPeakDown = 0;
+let peakWindowSec = 300;
 
 function initPeakChart() {
+    const saved = localStorage.getItem('nm_peak_default_sec');
+    if (saved) {
+        peakWindowSec = parseInt(saved) || 300;
+        const chk = document.getElementById('peakDefaultChk');
+        if (chk) chk.checked = true;
+    }
+    updatePeakTabs();
+
     const ctx = document.getElementById('peakChart').getContext('2d');
     peakChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: peakLabels,
             datasets: [
                 { label: '上传', data: peakUpData, borderColor: '#22d3ee', borderWidth: 1.5, fill: true, backgroundColor: 'rgba(34,211,238,0.07)', tension: 0.4, pointRadius: 0 },
                 { label: '下载', data: peakDownData, borderColor: '#a78bfa', borderWidth: 1.5, fill: true, backgroundColor: 'rgba(167,139,250,0.07)', tension: 0.4, pointRadius: 0 }
@@ -75,24 +82,125 @@ function initPeakChart() {
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmtSpeed(c.raw)}` } }
+                tooltip: {
+                    callbacks: {
+                        title: c => new Date(c[0].raw.x).toLocaleString('zh-CN'),
+                        label: c => `${c.dataset.label}: ${fmtSpeed(c.raw.y)}`
+                    }
+                }
             },
             scales: {
-                x: { display: false },
+                x: {
+                    type: 'linear',
+                    display: false,
+                    min: Date.now() - peakWindowSec * 1000,
+                    max: Date.now()
+                },
                 y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmtSpeed(v) } }
             }
         }
     });
+
+    fetchPeakHistory();
+}
+
+function updatePeakTabs() {
+    document.querySelectorAll('.peak-tab').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.sec) === peakWindowSec);
+    });
+}
+
+function setPeakWindow(sec) {
+    if (peakWindowSec === sec) return;
+    peakWindowSec = sec;
+    updatePeakTabs();
+
+    // Clear custom date inputs
+    const fromInput = document.getElementById('peakDateFrom');
+    const toInput = document.getElementById('peakDateTo');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    fetchPeakHistory();
+}
+
+function savePeakDefault() {
+    const chk = document.getElementById('peakDefaultChk');
+    if (chk?.checked) {
+        localStorage.setItem('nm_peak_default_sec', peakWindowSec);
+    } else {
+        localStorage.removeItem('nm_peak_default_sec');
+    }
+}
+
+async function fetchPeakHistory(forceFromTs = 0, forceToTs = 0) {
+    try {
+        let url = `${API_BASE}/stats/aggregate?seconds=${peakWindowSec}`;
+        if (forceFromTs > 0 && forceToTs > 0) {
+            url = `${API_BASE}/stats/aggregate?from_ts=${forceFromTs}&to_ts=${forceToTs}`;
+        }
+
+        const res = await fetch(url);
+        const json = await res.json();
+        const data = json.data || [];
+
+        // Map to {x,y} format
+        peakUpData = data.map(d => ({ x: d.timestamp * 1000, y: d.upload_bps }));
+        peakDownData = data.map(d => ({ x: d.timestamp * 1000, y: d.download_bps }));
+
+        peakChart.data.datasets[0].data = peakUpData;
+        peakChart.data.datasets[1].data = peakDownData;
+
+        const nowMs = Date.now();
+        if (forceFromTs > 0 && forceToTs > 0) {
+            peakChart.options.scales.x.min = forceFromTs * 1000;
+            peakChart.options.scales.x.max = forceToTs * 1000;
+        } else {
+            peakChart.options.scales.x.min = nowMs - peakWindowSec * 1000;
+            // set max cleanly to the future slightly so the right padding exists
+            peakChart.options.scales.x.max = nowMs;
+        }
+
+        peakChart.update('none');
+    } catch (e) { /* ignore */ }
+}
+
+function applyPeakCustomDate() {
+    const fv = document.getElementById('peakDateFrom')?.value;
+    const tv = document.getElementById('peakDateTo')?.value;
+    if (!fv) return;
+    const fromTs = Math.floor(new Date(fv + 'T00:00:00').getTime() / 1000);
+    const toTs = tv ? Math.floor(new Date(tv + 'T23:59:59').getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+    // Clear tabs selection
+    document.querySelectorAll('.peak-tab').forEach(b => b.classList.remove('active'));
+    // Mark custom time window (0 means custom)
+    peakWindowSec = 0;
+
+    fetchPeakHistory(fromTs, toTs);
 }
 
 function pushPeakPoint(totalUp, totalDown) {
-    peakUpData.push(totalUp); peakDownData.push(totalDown); peakLabels.push('');
-    if (peakUpData.length > PEAK_MAX) { peakUpData.shift(); peakDownData.shift(); peakLabels.shift(); }
-    peakChart.update('none');
     sessionPeakUp = Math.max(sessionPeakUp, totalUp);
     sessionPeakDown = Math.max(sessionPeakDown, totalDown);
     document.getElementById('kpiPeakUp').textContent = fmtSpeed(sessionPeakUp);
     document.getElementById('kpiPeakDown').textContent = fmtSpeed(sessionPeakDown);
+
+    // Only slide real-time if we are NOT on a custom static data-bound range
+    if (peakWindowSec > 0) {
+        const nowMs = Date.now();
+        peakUpData.push({ x: nowMs, y: totalUp });
+        peakDownData.push({ x: nowMs, y: totalDown });
+
+        const minMs = nowMs - peakWindowSec * 1000;
+        // prune arrays to avoid memory leak if tab left open for days
+        while (peakUpData.length > 0 && peakUpData[0].x < minMs - 60000) peakUpData.shift();
+        while (peakDownData.length > 0 && peakDownData[0].x < minMs - 60000) peakDownData.shift();
+
+        peakChart.options.scales.x.min = minMs;
+        peakChart.options.scales.x.max = nowMs;
+        peakChart.update('none');
+    }
 }
 
 // ═══════════════════════════════════════════════════
@@ -234,64 +342,123 @@ function getOrCreateRow(device) {
         row = document.createElement('tr');
         row.id = `row-${id}`;
         row.className = 'device-row';
-        row.style.cursor = 'pointer';
-        row.onclick = () => { location.href = `/device/${id}`; };
+        // ❌ No tr.onclick — navigation via the name <a> link instead
         row.innerHTML = `
       <td class="col-rank">—</td>
       <td class="col-name">
+        <button class="action-btn rename-btn" id="btn-rename-${id}" title="重命名">✏️</button>
+        <button class="action-btn delete-btn" id="btn-delete-${id}" title="删除">🗑</button>
         ${platformIcon(device.platform)}
-        <span class="device-row-name" id="name-${id}">${escHtml(device.name)}</span>
-        <span class="row-actions" onclick="event.stopPropagation()">
-          <button class="action-btn rename-btn" title="重命名" onclick="renameDevice('${id}')">✏️</button>
-          <button class="action-btn delete-btn" title="删除" onclick="deleteDevice('${id}')">🗑</button>
-        </span>
+        <a class="device-name-link" href="/device/${id}" id="name-${id}">${escHtml(device.name)}</a>
       </td>
       <td class="col-status"><span class="status-pill" id="pill-${id}">离线</span></td>
       <td class="col-speed up"  id="up-${id}">0 bps</td>
       <td class="col-speed down" id="down-${id}">0 bps</td>
-      <td class="col-spark" onclick="event.stopPropagation()">
+      <td class="col-spark">
         <canvas id="spark-${id}" width="320" height="36"></canvas>
       </td>
     `;
         document.getElementById('deviceTableBody').appendChild(row);
+
+        // Attach button listeners AFTER DOM insertion (no inline onclick conflict)
+        document.getElementById(`btn-rename-${id}`)
+            .addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); renameDevice(id); });
+        document.getElementById(`btn-delete-${id}`)
+            .addEventListener('click', e => { e.stopPropagation(); e.preventDefault(); deleteDevice(id); });
     }
     return row;
 }
 
-// ── 设备管理操作 ──────────────────────────────────────
-async function renameDevice(id) {
-    const current = document.getElementById(`name-${id}`)?.textContent || '';
-    const newName = prompt('输入新的设备名称：', current);
-    if (!newName || !newName.trim() || newName.trim() === current) return;
-    try {
-        const r = await fetch(`${API_BASE}/devices/${id}/name`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: newName.trim() })
+// ── 内联弹框（替代被浏览器拦截的 prompt/confirm）────────
+function showModal({ title, body, inputValue, confirmText, confirmClass, onConfirm }) {
+    // Remove existing modal
+    document.getElementById('nm-modal')?.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'nm-modal';
+    modal.innerHTML = `
+      <div class="nm-modal-backdrop"></div>
+      <div class="nm-modal-box">
+        <div class="nm-modal-title">${title}</div>
+        <div class="nm-modal-body">${body}</div>
+        ${inputValue !== undefined
+            ? `<input class="nm-modal-input" id="nm-modal-input" type="text" value="${escHtml(inputValue)}" autocomplete="off">`
+            : ''}
+        <div class="nm-modal-footer">
+          <button class="nm-btn nm-btn-cancel" id="nm-modal-cancel">取消</button>
+          <button class="nm-btn nm-btn-confirm ${confirmClass || ''}" id="nm-modal-confirm">${confirmText}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = document.getElementById('nm-modal-input');
+    if (input) { input.focus(); input.select(); }
+
+    const close = () => document.getElementById('nm-modal')?.remove();
+
+    document.getElementById('nm-modal-cancel').onclick = close;
+    document.getElementById('nm-modal-backdrop') && (document.querySelector('.nm-modal-backdrop').onclick = close);
+    document.getElementById('nm-modal-confirm').onclick = () => {
+        const val = input ? input.value.trim() : null;
+        close();
+        onConfirm(val);
+    };
+    if (input) {
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') document.getElementById('nm-modal-confirm')?.click();
+            if (e.key === 'Escape') close();
         });
-        if (!r.ok) throw new Error(await r.text());
-        const el = document.getElementById(`name-${id}`);
-        if (el) el.textContent = newName.trim();
-        if (deviceMap[id]) deviceMap[id].name = newName.trim();
-    } catch (e) {
-        alert('重命名失败：' + e.message);
     }
 }
 
-async function deleteDevice(id) {
+// ── 设备管理操作 ──────────────────────────────────────
+function renameDevice(id) {
+    const current = document.getElementById(`name-${id}`)?.textContent || '';
+    showModal({
+        title: '✏️ 重命名设备',
+        body: '输入新的设备名称：',
+        inputValue: current,
+        confirmText: '确认',
+        onConfirm: async (newName) => {
+            if (!newName || newName === current) return;
+            try {
+                const r = await fetch(`${API_BASE}/devices/${id}/name`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+                if (!r.ok) throw new Error(await r.text());
+                const el = document.getElementById(`name-${id}`);
+                if (el) el.textContent = newName;
+                if (deviceMap[id]) deviceMap[id].name = newName;
+            } catch (e) {
+                console.error('重命名失败:', e);
+            }
+        }
+    });
+}
+
+function deleteDevice(id) {
     const name = document.getElementById(`name-${id}`)?.textContent || id;
-    if (!confirm(`确定删除「${name}」及其所有历史数据吗？此操作不可撤销。`)) return;
-    try {
-        const r = await fetch(`${API_BASE}/devices/${id}`, { method: 'DELETE' });
-        if (!r.ok) throw new Error(await r.text());
-        // Row removal handled by WS device_deleted event, but also do it locally
-        document.getElementById(`row-${id}`)?.remove();
-        delete deviceMap[id];
-        delete sparkBuffers[id];
-        updateKpi();
-    } catch (e) {
-        alert('删除失败：' + e.message);
-    }
+    showModal({
+        title: '🗑 删除设备',
+        body: `确定删除「<b>${escHtml(name)}</b>」及其所有历史数据吗？<br><small style="color:#f87171">此操作不可撤销</small>`,
+        confirmText: '删除',
+        confirmClass: 'nm-btn-danger',
+        onConfirm: async () => {
+            try {
+                const r = await fetch(`${API_BASE}/devices/${id}`, { method: 'DELETE' });
+                if (!r.ok) throw new Error(await r.text());
+                document.getElementById(`row-${id}`)?.remove();
+                delete deviceMap[id];
+                delete sparkBuffers[id];
+                updateKpi();
+            } catch (e) {
+                console.error('删除失败:', e);
+            }
+        }
+    });
 }
 
 function setOnlineStatus(id, online) {
@@ -434,6 +601,24 @@ function handleSpeedUpdate(msg) {
     }
     updateSpeedCells(device_id, upload_bps, download_bps);
     setOnlineStatus(device_id, true);
+
+    // Live update for calendar heatmap (approx 1 message per sec, bps ≈ bytes)
+    const tzOffset = new Date().getTimezoneOffset() * 60000;
+    const todayStr = new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
+    const isCurrentMonth = (new Date(Date.now() - tzOffset).getFullYear() === calYear && (new Date(Date.now() - tzOffset).getMonth() + 1) === calMonth);
+    let changed = false;
+
+    if (isCurrentMonth && (upload_bps > 0 || download_bps > 0)) {
+        if (!calData[todayStr]) calData[todayStr] = { upload_bytes: 0, download_bytes: 0 };
+        calData[todayStr].upload_bytes += Math.round(upload_bps || 0);
+        calData[todayStr].download_bytes += Math.round(download_bps || 0);
+        changed = true;
+    }
+
+    if (changed) {
+        renderCalendar();
+    }
+
     updateKpi();
     if (dynSortEnabled) applySort();
 }
@@ -485,8 +670,234 @@ function connectWS() {
 // ── Period tabs (now unused, kept for heatmap refresh) ─────────
 // (tabs removed from HTML along with stat columns)
 
+// ══════════════════════════════════════════════════════════
+// MONTHLY CALENDAR HEATMAP
+// ══════════════════════════════════════════════════════════
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth() + 1;  // 1-based
+let calMode = 'up';   // 'up' | 'down'
+let calData = {};     // {date: {upload_bytes, download_bytes}}
+
+const CAL_UP_COLOR = [34, 211, 238]; // cyan
+const CAL_DOWN_COLOR = [167, 139, 250]; // violet
+
+function calColor(value, max, mode) {
+    if (!max || !value) return 'rgba(255,255,255,0.04)';
+    const t = Math.min(value / max, 1);
+    const [r, g, b] = mode === 'up' ? CAL_UP_COLOR : CAL_DOWN_COLOR;
+    return `rgba(${r},${g},${b},${(0.1 + t * 0.88).toFixed(2)})`;
+}
+
+function setCalMode(mode) {
+    calMode = mode;
+    document.getElementById('calTabUp').classList.toggle('active', mode === 'up');
+    document.getElementById('calTabDown').classList.toggle('active', mode === 'down');
+    renderCalendar();
+}
+
+function shiftCalMonth(delta) {
+    calMonth += delta;
+    if (calMonth > 12) { calMonth = 1; calYear++; }
+    if (calMonth < 1) { calMonth = 12; calYear--; }
+    loadCalendar();
+}
+
+async function loadCalendar() {
+    document.getElementById('calGrid').innerHTML =
+        '<div class="loading-state" style="grid-column:1/-1;padding:30px"><div class="spinner"></div><span>加载中...</span></div>';
+    document.getElementById('calMonthLabel').textContent =
+        `${calYear} 年 ${String(calMonth).padStart(2, '0')} 月`;
+    try {
+        const res = await fetch(`${API_BASE}/stats/daily?year=${calYear}&month=${calMonth}`);
+        const json = await res.json();
+        calData = {};
+        (json.days || []).forEach(d => { calData[d.date] = d; });
+        renderCalendar();
+    } catch (e) {
+        document.getElementById('calGrid').innerHTML =
+            '<div style="padding:20px;color:#f87171;grid-column:1/-1">加载失败</div>';
+    }
+}
+
+function renderCalendar() {
+    const grid = document.getElementById('calGrid');
+    const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+    // JS: 0=Sun 1=Mon ... we want Mon=0
+    let firstDow = new Date(calYear, calMonth - 1, 1).getDay(); // 0=Sun
+    firstDow = (firstDow + 6) % 7; // convert to Mon=0
+
+    // Compute max for color scaling
+    let maxVal = 0;
+    let totalUp = 0, totalDown = 0, peakDate = '', peakVal = 0;
+    for (const [date, d] of Object.entries(calData)) {
+        totalUp += d.upload_bytes || 0;
+        totalDown += d.download_bytes || 0;
+        const v = calMode === 'up' ? d.upload_bytes : d.download_bytes;
+        if ((v || 0) > maxVal) maxVal = v;
+        if ((v || 0) > peakVal) { peakVal = v; peakDate = date; }
+    }
+
+    // Build grid cells
+    let html = '';
+    // Empty cells before first day
+    for (let i = 0; i < firstDow; i++) {
+        html += '<div class="cal-cell empty"></div>';
+    }
+    const tzOffset = new Date().getTimezoneOffset() * 60000;
+    const today = new Date(Date.now() - tzOffset).toISOString().slice(0, 10);
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${calYear}-${String(calMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const d = calData[dateStr] || { upload_bytes: 0, download_bytes: 0 };
+        const val = calMode === 'up' ? (d.upload_bytes || 0) : (d.download_bytes || 0);
+        const color = calColor(val, maxVal, calMode);
+        const weekday = ['日', '一', '二', '三', '四', '五', '六'][new Date(dateStr).getDay()];
+        const isToday = dateStr === today;
+        html += `<div class="cal-cell${isToday ? ' cal-today' : ''}"
+          style="background:${color}"
+          title="${dateStr} 周${weekday}\n↑ ${fmtBytes(d.upload_bytes || 0)}\n↓ ${fmtBytes(d.download_bytes || 0)}">
+          <span class="cal-day-num">${day}</span>
+          <div style="font-size: 0.65rem; line-height: 1.25; margin-top: auto; padding-top:4px; font-weight: 500;">
+              ${(d.upload_bytes || d.download_bytes) ? `<div style="color:#ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">↑ ${fmtBytes(d.upload_bytes || 0)}</div><div style="color:#ffffff; text-shadow: 0 1px 2px rgba(0,0,0,0.8);">↓ ${fmtBytes(d.download_bytes || 0)}</div>` : ''}
+          </div>
+        </div>`;
+    }
+    grid.innerHTML = html;
+
+    // Summary stats
+    const activeDays = Object.keys(calData).length || 1;
+    document.getElementById('calMonthUp').textContent = fmtBytes(totalUp);
+    document.getElementById('calMonthDown').textContent = fmtBytes(totalDown);
+    document.getElementById('calDayAvgUp').textContent = fmtBytes(totalUp / activeDays);
+    document.getElementById('calDayAvgDown').textContent = fmtBytes(totalDown / activeDays);
+    document.getElementById('calPeakDay').textContent = peakDate ? peakDate.slice(5) + ` (${fmtBytes(peakVal)})` : '—';
+
+    // Legend gradient
+    const [r, g, b] = calMode === 'up' ? CAL_UP_COLOR : CAL_DOWN_COLOR;
+    document.getElementById('calLegGrad').style.background =
+        `linear-gradient(to right, rgba(${r},${g},${b},0.1), rgba(${r},${g},${b},0.98))`;
+}
+
+// ══════════════════════════════════════════════════════════
+// GLOBAL HISTORY CHART
+// ══════════════════════════════════════════════════════════
+let globalHistoryChart = null;
+
+function initGlobalHistoryChart() {
+    const ctx = document.getElementById('globalHistoryChart').getContext('2d');
+    globalHistoryChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [
+                { label: '上传', data: [], backgroundColor: 'rgba(34,211,238,0.7)', borderRadius: 4 },
+                { label: '下载', data: [], backgroundColor: 'rgba(167,139,250,0.7)', borderRadius: 4 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } },
+                tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmtBytes(c.raw)}` } }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#94a3b8', maxTicksLimit: 14, font: { size: 10 } } },
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', callback: v => fmtBytes(v) } }
+            }
+        }
+    });
+
+    // Event listeners
+    document.querySelectorAll('#globalPeriodTabs .tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#globalPeriodTabs .tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            let range;
+            switch (btn.dataset.period) {
+                case 'day': range = todayRange(); break;
+                case 'yesterday': range = yesterdayRange(); break;
+                case 'week': range = weekRange(); break;
+                case 'month': range = monthRange(); break;
+            }
+            if (range) loadGlobalHistoryRange(range.from_ts, range.to_ts);
+        });
+    });
+
+    document.getElementById('applyGlobalDateBtn').addEventListener('click', () => {
+        const fromV = document.getElementById('globalDateFrom').value;
+        const toV = document.getElementById('globalDateTo').value;
+        if (!fromV) return alert('请选择起始日期');
+        const fromTs = Math.floor(new Date(fromV + 'T00:00:00').getTime() / 1000);
+        const toTs = toV ? Math.floor(new Date(toV + 'T23:59:59').getTime() / 1000) : Math.floor(Date.now() / 1000);
+        document.querySelectorAll('#globalPeriodTabs .tab').forEach(b => b.classList.remove('active'));
+        loadGlobalHistoryRange(fromTs, toTs);
+    });
+
+    const initRange = todayRange();
+    loadGlobalHistoryRange(initRange.from_ts, initRange.to_ts);
+}
+
+// Date helpers
+function todayRange() {
+    const now = new Date();
+    const from = new Date(now); from.setHours(0, 0, 0, 0);
+    return { from_ts: from.getTime() / 1000, to_ts: now.getTime() / 1000 };
+}
+function yesterdayRange() {
+    const now = new Date();
+    const to = new Date(now); to.setHours(0, 0, 0, 0);
+    const from = new Date(to); from.setDate(from.getDate() - 1);
+    return { from_ts: from.getTime() / 1000, to_ts: to.getTime() / 1000 };
+}
+function weekRange() {
+    const now = new Date();
+    const from = new Date(now); from.setDate(from.getDate() - 7);
+    return { from_ts: from.getTime() / 1000, to_ts: now.getTime() / 1000 };
+}
+function monthRange() {
+    const now = new Date();
+    const from = new Date(now); from.setDate(from.getDate() - 30);
+    return { from_ts: from.getTime() / 1000, to_ts: now.getTime() / 1000 };
+}
+function formatLabel(ts, span_hours) {
+    const d = new Date(ts * 1000);
+    return span_hours <= 48
+        ? d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        : d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit' });
+}
+
+async function loadGlobalHistoryRange(from_ts, to_ts) {
+    try {
+        const url = `${API_BASE}/stats/all?from_ts=${from_ts}&to_ts=${to_ts}`;
+        const res = await fetch(url);
+        const json = await res.json();
+
+        document.getElementById('globalTotalUpBytes').textContent = fmtBytes(json.total_upload_bytes || 0);
+        document.getElementById('globalTotalDownBytes').textContent = fmtBytes(json.total_download_bytes || 0);
+
+        const hourly = json.hourly || [];
+        const span_hours = (to_ts - from_ts) / 3600;
+        const labels = hourly.map(r => formatLabel(r.hour_start, span_hours));
+
+        globalHistoryChart.data.labels = labels;
+        globalHistoryChart.data.datasets[0].data = hourly.map(r => r.upload_bytes);
+        globalHistoryChart.data.datasets[1].data = hourly.map(r => r.download_bytes);
+        globalHistoryChart.update();
+
+        // Calculate peaks
+        let pup = 0, pdown = 0, dtUp = '—', dtDown = '—';
+        hourly.forEach((r, i) => {
+            if (r.upload_bytes > pup) { pup = r.upload_bytes; dtUp = labels[i]; }
+            if (r.download_bytes > pdown) { pdown = r.download_bytes; dtDown = labels[i]; }
+        });
+        document.getElementById('globalDetailPeakUp').textContent = dtUp + (pup > 0 ? ` (${fmtBytes(pup)})` : '');
+        document.getElementById('globalDetailPeakDown').textContent = dtDown + (pdown > 0 ? ` (${fmtBytes(pdown)})` : '');
+    } catch (e) { console.warn('History range load failed', e); }
+}
+
 // ── Bootstrap ─────────────────────────────────────
 startClock();
 initPeakChart();
+initGlobalHistoryChart();
 buildHourAxis();
 connectWS();
+loadCalendar();
