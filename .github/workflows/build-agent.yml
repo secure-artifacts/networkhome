@@ -1,4 +1,4 @@
-name: Build Agent Installers
+name: Build Agent & Server Installers
 
 on:
   push:
@@ -111,7 +111,7 @@ jobs:
   # ══════════════════════════════════════════════════
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-windows, build-macos ]
+    needs: [ build-windows, build-macos, build-server-windows ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,22 +120,91 @@ jobs:
         with: { name: NetMonitor-Agent-Windows-Setup, path: release/ }
       - uses: actions/download-artifact@v4
         with: { name: NetMonitor-macOS, path: release/ }
+      - uses: actions/download-artifact@v4
+        with: { name: NetMonitor-Server-Windows-Setup, path: release/ }
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             release/NetMonitor-Agent-Setup.exe
+            release/NetMonitor-Server-Setup.exe
             release/NetMonitor-Agent-Mac.dmg
             release/NetMonitor-Agent-Mac.zip
           body: |
-            ## NetMonitor Agent ${{ github.ref_name }}
+            ## NetMonitor ${{ github.ref_name }}
 
+            ### 客户端 Agent（被监控的设备安装）
             | 平台 | 下载 | 适用 |
             |------|------|------|
             | 🪟 Windows | `NetMonitor-Agent-Setup.exe` | 64位 |
-            | 🍎 macOS | `NetMonitor-Agent-Mac.dmg` | M1/M2/M3/M4 + Intel (via Rosetta 2) |
+            | 🍎 macOS | `NetMonitor-Agent-Mac.dmg` | M1/M2/M3/M4 + Intel (Rosetta 2) |
 
-            **Windows：** 双击安装包 → 向导完成后自动启动，出现在系统托盘
-            **macOS：** 打开 DMG → 拖拽到 Applications → 右键打开（首次绕过 Gatekeeper）
-            **Intel Mac 用户：** 需先安装 Rosetta 2（`softwareupdate --install-rosetta`）
+            ### 服务端 Server（运行在主机上）
+            | 平台 | 下载 |
+            |------|------|
+            | 🪟 Windows | `NetMonitor-Server-Setup.exe` |
+
+            **Agent：** 安装后自动运行，系统托盘图标，自动搜索服务器
+            **Server：** 安装后托盘运行，右键可“打开监控面板”或“复制访问地址”
           generate_release_notes: true
+
+  # ══════════════════════════════════════════════════
+  # Windows Server 安装包
+  # ══════════════════════════════════════════════════
+  build-server-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install pyinstaller psutil pystray Pillow uvicorn fastapi aiosqlite apscheduler python-multipart websockets
+
+      - name: Build Server .exe
+        working-directory: server
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "NetMonitor-Server" `
+            --add-data "static;static" `
+            --hidden-import pystray._win32 `
+            --hidden-import PIL.ImageFont `
+            --hidden-import PIL.ImageDraw `
+            --hidden-import winreg `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols `
+            --hidden-import uvicorn.protocols.http `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.lifespan `
+            --hidden-import uvicorn.lifespan.on `
+            --hidden-import aiosqlite `
+            --hidden-import apscheduler `
+            --hidden-import multipart `
+            server_tray.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Download Chinese language file
+        working-directory: server
+        run: |
+          $dir = "C:\Program Files (x86)\Inno Setup 6\Languages"
+          $url = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+          Invoke-WebRequest -Uri $url -OutFile "$dir\ChineseSimplified.isl"
+
+      - name: Compile installer
+        working-directory: server
+        run: |
+          New-Item -ItemType Directory -Force -Path installer_out | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" server_installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetMonitor-Server-Windows-Setup
+          path: server/installer_out/NetMonitor-Server-Setup.exe

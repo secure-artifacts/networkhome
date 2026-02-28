@@ -78,8 +78,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NetMonitor", lifespan=lifespan)
 
-# 挂载静态文件
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+# 挂载静态文件（打包后路径由 NM_STATIC_PATH 覆盖）
+STATIC_DIR = os.environ.get(
+    "NM_STATIC_PATH",
+    os.path.join(os.path.dirname(__file__), "static")
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
