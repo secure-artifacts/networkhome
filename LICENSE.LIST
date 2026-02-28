@@ -1,0 +1,35 @@
+# LICENSE.LIST — 依赖协议清单
+# 项目: NetMonitor
+# 生成时间: 2026-03-01
+# 工具: 依赖协议审计 (https://tpscsm-docs.pages.dev/license-audit/)
+# 说明: 仅包含直接依赖，不含传递依赖
+
+## 统计摘要
+# 总计: 8 个直接依赖
+# ✅ 低风险 (MIT / BSD / Apache-2.0): 8
+# ⚠️ 需关注: 0
+# ❌ 需确认: 0
+
+## server/requirements.txt
+
+| 包名               | 版本要求  | 协议          | 风险 | 来源                                        |
+|--------------------|-----------|---------------|------|---------------------------------------------|
+| fastapi            | latest    | MIT           | ✅   | https://pypi.org/project/fastapi/           |
+| uvicorn[standard]  | latest    | BSD-3-Clause  | ✅   | https://pypi.org/project/uvicorn/           |
+| psutil             | latest    | BSD-3-Clause  | ✅   | https://pypi.org/project/psutil/            |
+| aiosqlite          | latest    | MIT           | ✅   | https://pypi.org/project/aiosqlite/         |
+| apscheduler        | latest    | MIT           | ✅   | https://pypi.org/project/APScheduler/       |
+| python-multipart   | latest    | Apache-2.0    | ✅   | https://pypi.org/project/python-multipart/  |
+| websockets         | latest    | BSD-3-Clause  | ✅   | https://pypi.org/project/websockets/        |
+
+## agent/requirements.txt
+
+| 包名     | 版本要求  | 协议         | 风险 | 来源                                   |
+|----------|-----------|--------------|------|----------------------------------------|
+| psutil   | latest    | BSD-3-Clause | ✅   | https://pypi.org/project/psutil/       |
+| requests | latest    | Apache-2.0   | ✅   | https://pypi.org/project/requests/     |
+
+## 风险标记说明
+# ✅ 低风险: MIT、BSD-2-Clause、BSD-3-Clause、ISC、Apache-2.0、Unlicense、CC0-1.0
+# ⚠️ 需关注: GPL、AGPL、LGPL、MPL、BSL、SSPL
+# ❌ 需确认: UNKNOWN、CC-BY-NC、自定义协议

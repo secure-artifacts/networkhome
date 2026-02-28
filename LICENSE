@@ -1,0 +1,79 @@
+NetMonitor — 合规参考报告
+生成时间: 2026-03-01
+声明: 本文件是合规参考报告，不是具有法律约束力的协议文件。
+
+================================================================================
+一、本项目协议
+================================================================================
+
+本项目 (NetMonitor) 采用 MIT License。
+
+版权所有 © 2026 NetMonitor Contributors
+
+特此免费授予任何获得本软件及其关联文档文件（"软件"）副本的人不受限制地处置
+本软件的权利，包括不受限制地使用、复制、修改、合并、发布、分发、再授权和/或
+出售本软件副本的权利，并允许向其提供本软件的人员这样做，但须符合以下条件：
+
+上述版权声明和本许可声明应包含在本软件的所有副本或重要部分中。
+
+本软件按"原样"提供，不提供任何形式的明示或暗示担保，包括但不限于适销性、
+特定用途适用性和非侵权性的担保。在任何情况下，作者或版权持有人均不对任何索赔、
+损害或其他责任负责，无论是合同行为、侵权行为还是其他原因引起的，与软件或软件
+的使用或其他交易相关。
+
+================================================================================
+二、协议兼容性分析
+================================================================================
+
+本项目所有直接依赖均为宽松协议（Permissive License），相互兼容，且与 MIT 兼容：
+
+  ✅ MIT           — fastapi, aiosqlite, apscheduler
+  ✅ BSD-3-Clause  — uvicorn, psutil, websockets
+  ✅ Apache-2.0    — python-multipart, requests
+
+继承限制: 无（所有依赖均为宽松协议，无 Copyleft 传染性）
+商用限制: 无
+分发要求: 分发时需保留各依赖的版权声明（见下方第三方声明）
+
+================================================================================
+三、第三方依赖协议声明
+================================================================================
+
+本项目使用以下第三方开源库，各库的协议如下：
+
+1. FastAPI (MIT License)
+   Copyright © Sebastián Ramírez
+   https://github.com/tiangolo/fastapi/blob/master/LICENSE
+
+2. Uvicorn (BSD-3-Clause License)
+   Copyright © Encode OSS Ltd.
+   https://github.com/encode/uvicorn/blob/master/LICENSE.md
+
+3. psutil (BSD-3-Clause License)
+   Copyright © Jay Loden, Dave Daeschler, Giampaolo Rodola
+   https://github.com/giampaolo/psutil/blob/master/LICENSE
+
+4. aiosqlite (MIT License)
+   Copyright © John Reese
+   https://github.com/omnilib/aiosqlite/blob/main/LICENSE
+
+5. APScheduler (MIT License)
+   Copyright © Alex Grönholm
+   https://github.com/agronholm/apscheduler/blob/master/LICENSE.txt
+
+6. python-multipart (Apache-2.0 License)
+   Copyright © Andrew Dunham
+   https://github.com/Kludex/python-multipart/blob/master/LICENSE.txt
+
+7. websockets (BSD-3-Clause License)
+   Copyright © Aymeric Augustin
+   https://github.com/python-websockets/websockets/blob/main/LICENSE
+
+8. requests (Apache-2.0 License)
+   Copyright © Kenneth Reitz
+   https://github.com/psf/requests/blob/main/LICENSE
+
+================================================================================
+完整依赖清单详见项目根目录 LICENSE.LIST 文件
+参考: https://tpscsm-docs.pages.dev/license-audit/
+================================================================================
