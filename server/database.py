@@ -6,7 +6,8 @@ import os
 import logging
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "netmonitor.db")
+# 路径支持环境变量覆盖（server_tray.py 打包时设置 NM_DB_PATH）
+DB_PATH = os.environ.get("NM_DB_PATH", os.path.join(os.path.dirname(__file__), "netmonitor.db"))
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +84,27 @@ async def update_device_seen(device_id: str, ip: str):
         await db.commit()
 
 
+async def rename_device(device_id: str, new_name: str) -> bool:
+    """重命名设备，返回是否成功"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        result = await db.execute(
+            "UPDATE devices SET name=? WHERE id=?",
+            (new_name.strip(), device_id)
+        )
+        await db.commit()
+        return result.rowcount > 0
+
+
+async def delete_device(device_id: str) -> bool:
+    """删除设备及其所有历史数据"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM speed_logs   WHERE device_id=?", (device_id,))
+        await db.execute("DELETE FROM hourly_stats WHERE device_id=?", (device_id,))
+        result = await db.execute("DELETE FROM devices WHERE id=?", (device_id,))
+        await db.commit()
+        return result.rowcount > 0
+
+
 async def insert_speed_log(device_id: str, timestamp: float, upload_bps: float, download_bps: float):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
@@ -157,11 +179,9 @@ async def get_weekly_heatmap(weeks: int = 4):
             GROUP BY dow, hr
         """, (since,))
         rows = await cursor.fetchall()
-        # Build 7x24 matrix {dow: {hr: {up, down}}}
         matrix = {d: {h: {"avg_up": 0, "avg_down": 0} for h in range(24)} for d in range(7)}
         for r in rows:
             matrix[r["dow"]][r["hr"]] = {"avg_up": r["avg_up"] or 0, "avg_down": r["avg_down"] or 0}
-        # Convert to list sorted Mon-Sun (dow 1..6,0)
         result = []
         for dow_idx in [1, 2, 3, 4, 5, 6, 0]:  # Mon-Sun
             row = {"dow": dow_idx, "hours": [matrix[dow_idx][h] for h in range(24)]}

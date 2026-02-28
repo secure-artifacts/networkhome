@@ -141,6 +141,30 @@ async def get_device(device_id: str):
     return device
 
 
+@app.patch("/api/devices/{device_id}/name")
+async def rename_device(device_id: str, body: dict = Body(...)):
+    """重命名设备"""
+    new_name = (body.get("name") or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="name required")
+    ok = await db.rename_device(device_id, new_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Device not found")
+    await manager.broadcast({"type": "device_renamed", "device_id": device_id, "name": new_name})
+    return {"status": "ok", "device_id": device_id, "name": new_name}
+
+
+@app.delete("/api/devices/{device_id}")
+async def delete_device(device_id: str):
+    """删除设备及其所有历史数据"""
+    ok = await db.delete_device(device_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Device not found")
+    latest_speeds.pop(device_id, None)
+    await manager.broadcast({"type": "device_deleted", "device_id": device_id})
+    return {"status": "ok", "device_id": device_id}
+
+
 # ──────────────────────────────────────────────
 # 速度上报 API
 # ──────────────────────────────────────────────

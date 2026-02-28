@@ -994,3 +994,44 @@ th.sortable:hover {
 .apply-btn:hover {
   background: rgba(34, 211, 238, 0.22);
 }
+/* ── Platform badges ── */
+.plat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  margin-right: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.plat-badge.mac   { background: rgba(255,255,255,0.08); color: #f9a8d4; }
+.plat-badge.win   { background: rgba(59,130,246,0.18);  color: #93c5fd; }
+.plat-badge.linux { background: rgba(234,179,8,0.15);   color: #fde047; }
+
+/* ── Inline rename/delete buttons ── */
+.row-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+tr.device-row:hover .row-actions {
+  opacity: 1;
+}
+.action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.action-btn:hover { background: rgba(255,255,255,0.1); }
+.delete-btn:hover { background: rgba(248,113,113,0.2); }

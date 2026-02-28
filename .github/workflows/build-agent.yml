@@ -101,10 +101,63 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: NetMonitor-macOS
+          name: NetMonitor-macOS-ARM
           path: |
             agent/NetMonitor-Agent-Mac.dmg
             agent/NetMonitor-Agent-Mac.zip
+
+  # ══════════════════════════════════════════════════
+  # macOS Intel (x86_64) — macos-13 runner
+  # 支持 macOS 10.15 (Catalina) 及以上
+  # ══════════════════════════════════════════════════
+  build-macos-intel:
+    runs-on: macos-13
+    continue-on-error: true   # Intel runner 不可用时不阻塞整体发布
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install pyinstaller psutil requests pystray Pillow
+
+      - name: Build Intel .app
+        working-directory: agent
+        run: |
+          pyinstaller --windowed \
+            --name "NetMonitor Agent Intel" \
+            --hidden-import pystray._darwin \
+            --hidden-import PIL.ImageFont \
+            --hidden-import PIL.ImageDraw \
+            --hidden-import tkinter \
+            --hidden-import tkinter.simpledialog \
+            --exclude-module PIL._imagingft \
+            --exclude-module PIL._imagingcms \
+            agent.py
+
+      - name: Create Intel DMG
+        working-directory: agent
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "NetMonitor Agent Intel" \
+            --window-size 560 340 \
+            --icon-size 128 \
+            --icon "NetMonitor Agent Intel.app" 140 150 \
+            --hide-extension "NetMonitor Agent Intel.app" \
+            --app-drop-link 420 150 \
+            --no-internet-enable \
+            "NetMonitor-Agent-Mac-Intel.dmg" "dist/" || \
+          (cd dist && zip -r ../NetMonitor-Agent-Mac-Intel.zip "NetMonitor Agent Intel.app")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetMonitor-macOS-Intel
+          path: |
+            agent/NetMonitor-Agent-Mac-Intel.dmg
+            agent/NetMonitor-Agent-Mac-Intel.zip
 
   # ══════════════════════════════════════════════════
   # GitHub Release（tag 触发）
@@ -119,9 +172,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: NetMonitor-Agent-Windows-Setup, path: release/ }
       - uses: actions/download-artifact@v4
-        with: { name: NetMonitor-macOS, path: release/ }
+        with: { name: NetMonitor-macOS-ARM, path: release/ }
       - uses: actions/download-artifact@v4
         with: { name: NetMonitor-Server-Windows-Setup, path: release/ }
+      - uses: actions/download-artifact@v4
+        if: ${{ always() }}
+        with: { name: NetMonitor-macOS-Intel, path: release/ }
+        continue-on-error: true
 
       - uses: softprops/action-gh-release@v2
         with:

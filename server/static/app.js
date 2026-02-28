@@ -24,9 +24,9 @@ function escHtml(s) {
 }
 function platformIcon(p) {
     const pl = (p || '').toLowerCase();
-    if (pl === 'darwin') return '🍎';
-    if (pl === 'windows') return '🪟';
-    return '🐧';
+    if (pl.includes('darwin') || pl.includes('mac')) return '<span class="plat-badge mac" title="macOS">🍎 macOS</span>';
+    if (pl.includes('windows')) return '<span class="plat-badge win" title="Windows">🪟 Win</span>';
+    return '<span class="plat-badge linux" title="Linux">🐧 Linux</span>';
 }
 function parseSpeedText(text) {
     if (!text) return 0;
@@ -239,8 +239,12 @@ function getOrCreateRow(device) {
         row.innerHTML = `
       <td class="col-rank">—</td>
       <td class="col-name">
-        <span class="plat-icon">${platformIcon(device.platform)}</span>
-        <span class="device-row-name">${escHtml(device.name)}</span>
+        ${platformIcon(device.platform)}
+        <span class="device-row-name" id="name-${id}">${escHtml(device.name)}</span>
+        <span class="row-actions" onclick="event.stopPropagation()">
+          <button class="action-btn rename-btn" title="重命名" onclick="renameDevice('${id}')">✏️</button>
+          <button class="action-btn delete-btn" title="删除" onclick="deleteDevice('${id}')">🗑</button>
+        </span>
       </td>
       <td class="col-status"><span class="status-pill" id="pill-${id}">离线</span></td>
       <td class="col-speed up"  id="up-${id}">0 bps</td>
@@ -252,6 +256,42 @@ function getOrCreateRow(device) {
         document.getElementById('deviceTableBody').appendChild(row);
     }
     return row;
+}
+
+// ── 设备管理操作 ──────────────────────────────────────
+async function renameDevice(id) {
+    const current = document.getElementById(`name-${id}`)?.textContent || '';
+    const newName = prompt('输入新的设备名称：', current);
+    if (!newName || !newName.trim() || newName.trim() === current) return;
+    try {
+        const r = await fetch(`${API_BASE}/devices/${id}/name`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: newName.trim() })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const el = document.getElementById(`name-${id}`);
+        if (el) el.textContent = newName.trim();
+        if (deviceMap[id]) deviceMap[id].name = newName.trim();
+    } catch (e) {
+        alert('重命名失败：' + e.message);
+    }
+}
+
+async function deleteDevice(id) {
+    const name = document.getElementById(`name-${id}`)?.textContent || id;
+    if (!confirm(`确定删除「${name}」及其所有历史数据吗？此操作不可撤销。`)) return;
+    try {
+        const r = await fetch(`${API_BASE}/devices/${id}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error(await r.text());
+        // Row removal handled by WS device_deleted event, but also do it locally
+        document.getElementById(`row-${id}`)?.remove();
+        delete deviceMap[id];
+        delete sparkBuffers[id];
+        updateKpi();
+    } catch (e) {
+        alert('删除失败：' + e.message);
+    }
 }
 
 function setOnlineStatus(id, online) {
@@ -426,6 +466,17 @@ function connectWS() {
         if (msg.type === 'init') initDevices(msg.devices);
         else if (msg.type === 'speed') handleSpeedUpdate(msg);
         else if (msg.type === 'heartbeat') handleHeartbeat(msg.online);
+        else if (msg.type === 'device_renamed') {
+            const el = document.getElementById(`name-${msg.device_id}`);
+            if (el) el.textContent = msg.name;
+            if (deviceMap[msg.device_id]) deviceMap[msg.device_id].name = msg.name;
+        }
+        else if (msg.type === 'device_deleted') {
+            document.getElementById(`row-${msg.device_id}`)?.remove();
+            delete deviceMap[msg.device_id];
+            delete sparkBuffers[msg.device_id];
+            updateKpi();
+        }
     };
     ws.onerror = () => updateWsStatus('error');
     ws.onclose = () => { updateWsStatus('error'); wsReconnectTimer = setTimeout(connectWS, 2000); };
