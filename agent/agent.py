@@ -1,8 +1,14 @@
 """
-网络监控客户端 Agent - 采集本机网速，每秒上报到服务器
-支持 Windows 和 macOS
-特性：UDP 广播自动发现服务器，无需手动输入 IP
+NetMonitor Agent — 系统托盘版 (Windows / macOS)
+
+功能:
+  - 系统托盘图标，无控制台窗口
+  - 图标颜色: 绿=已连接, 黄=连接中, 红=失败
+  - 右键菜单: 状态 / 修改设备名称 / 开机自启 / 退出
+  - 首次运行弹小对话框设置设备名称（默认=电脑用户名）
+  - 后台线程采集网速并上报，支持 UDP 自动发现服务器
 """
+
 import json
 import os
 import platform
@@ -12,193 +18,380 @@ import time
 import uuid
 import logging
 import threading
-import requests
-import psutil
 
+import psutil
+import requests
+import pystray
+from PIL import Image, ImageDraw, ImageFont
+
+# ── 平台判断 ──────────────────────────────────────────
+IS_WIN = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
+
+# ── 路径 ─────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, 'frozen', False) else __file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+LOG_FILE    = os.path.join(BASE_DIR, "agent.log")
+
+# ── 日志（写文件，不弹控制台）────────────────────────
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    filename=LOG_FILE, level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    encoding="utf-8"
 )
 logger = logging.getLogger(__name__)
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-BROADCAST_PORT = 8867
-DISCOVERY_TIMEOUT = 6  # 秒
+BROADCAST_PORT   = 8867
+DISCOVERY_TIMEOUT = 6
 
 
-# ─── UDP 自动发现 ──────────────────────────────────────
-def discover_server() -> str | None:
-    """
-    监听 UDP 广播，自动发现服务器地址。
-    返回 "http://IP:PORT" 或 None（超时未发现）
-    """
-    print(f"正在局域网内搜索服务器（等待 {DISCOVERY_TIMEOUT} 秒）...")
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.settimeout(DISCOVERY_TIMEOUT)
+# ══════════════════════════════════════════════════════
+# 图标生成
+# ══════════════════════════════════════════════════════
+def make_icon(color=(52, 211, 153)):
+    """生成 64×64 圆形托盘图标，颜色表示连接状态"""
+    size = 64
+    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    m = 6
+    draw.ellipse([m, m, size-m, size-m], fill=color)
+    # 画 "N" 字
+    draw.text((22, 18), "N", fill="white")
+    return img
+
+ICON_GREEN  = lambda: make_icon((52, 211, 153))   # 已连接
+ICON_YELLOW = lambda: make_icon((251, 191, 36))    # 连接中
+ICON_RED    = lambda: make_icon((248, 113, 113))   # 断开
+
+
+# ══════════════════════════════════════════════════════
+# 配置
+# ══════════════════════════════════════════════════════
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_config(cfg):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+# ══════════════════════════════════════════════════════
+# UDP 自动发现
+# ══════════════════════════════════════════════════════
+def discover_server():
     try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.settimeout(DISCOVERY_TIMEOUT)
         sock.bind(("", BROADCAST_PORT))
         data, addr = sock.recvfrom(1024)
         info = json.loads(data.decode())
         if info.get("service") == "netmonitor":
-            server_ip = addr[0]
-            server_port = info.get("port", 8866)
-            url = f"http://{server_ip}:{server_port}"
-            print(f"✅ 自动发现服务器：{url}")
+            url = f"http://{addr[0]}:{info.get('port', 8866)}"
+            logger.info("自动发现服务器: %s", url)
             return url
     except socket.timeout:
-        print("未找到服务器广播，切换到手动输入...")
-        return None
+        logger.info("未发现服务器广播")
     except Exception as e:
         logger.warning("发现失败: %s", e)
-        return None
     finally:
-        sock.close()
+        try: sock.close()
+        except: pass
+    return None
 
 
-def load_or_create_config() -> dict:
-    """加载配置文件，首次运行时尝试自动发现服务器"""
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            config = json.load(f)
-        if "device_id" not in config:
-            config["device_id"] = str(uuid.uuid4())
-            save_config(config)
-        print(f"已加载配置：{config['device_name']} → {config['server']}")
-        return config
+# ══════════════════════════════════════════════════════
+# 小对话框（tkinter，不显示主窗口）
+# ══════════════════════════════════════════════════════
+def ask_string(title, prompt, initial=""):
+    """在任意线程里弹出输入框，返回输入字符串"""
+    import tkinter as tk
+    from tkinter import simpledialog
+    result = [initial]
+    done   = threading.Event()
 
-    print("=" * 50)
-    print("  NetMonitor Agent - 首次配置")
-    print("=" * 50)
+    def _show():
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes("-topmost", True)
+        val = simpledialog.askstring(title, prompt, parent=root, initialvalue=initial)
+        if val and val.strip():
+            result[0] = val.strip()
+        root.destroy()
+        done.set()
 
-    # 先尝试自动发现
-    server = discover_server()
+    threading.Thread(target=_show, daemon=True).start()
+    done.wait(timeout=120)
+    return result[0]
 
-    if not server:
-        # 自动发现失败，手动输入
-        server = input("请手动输入服务器地址（例：http://192.168.1.100:8866）: ").strip()
-        if not server.startswith("http"):
-            server = "http://" + server
-        server = server.rstrip("/")
+def show_input_dialog_server(initial=""):
+    return ask_string("服务器地址", "输入服务器地址（如 http://192.168.1.5:8866）：", initial)
 
-    name = input(f"本机名称（直接回车使用 {socket.gethostname()}）: ").strip()
-    if not name:
-        name = socket.gethostname()
-
-    config = {
-        "server": server,
-        "device_id": str(uuid.uuid4()),
-        "device_name": name,
-        "report_interval": 1,
-    }
-    save_config(config)
-    print(f"\n✅ 配置已保存到 {CONFIG_FILE}")
-    return config
+def show_input_dialog_name(initial=""):
+    return ask_string("设备名称", "输入本设备的名称：", initial)
 
 
-def save_config(config: dict):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+# ══════════════════════════════════════════════════════
+# 开机自启
+# ══════════════════════════════════════════════════════
+def get_exe_path():
+    if getattr(sys, 'frozen', False):
+        return f'"{sys.executable}"'
+    return f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+
+def is_startup_enabled():
+    if IS_WIN:
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                r"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                0, winreg.KEY_READ)
+            winreg.QueryValueEx(key, "NetMonitor-Agent")
+            winreg.CloseKey(key)
+            return True
+        except Exception:
+            return False
+    elif IS_MAC:
+        plist = os.path.expanduser("~/Library/LaunchAgents/com.netmonitor.agent.plist")
+        return os.path.exists(plist)
+    return False
+
+def set_startup(enable: bool):
+    if IS_WIN:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+            r"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            0, winreg.KEY_SET_VALUE)
+        if enable:
+            winreg.SetValueEx(key, "NetMonitor-Agent", 0, winreg.REG_SZ, get_exe_path())
+        else:
+            try: winreg.DeleteValue(key, "NetMonitor-Agent")
+            except FileNotFoundError: pass
+        winreg.CloseKey(key)
+    elif IS_MAC:
+        plist_path = os.path.expanduser("~/Library/LaunchAgents/com.netmonitor.agent.plist")
+        if enable:
+            plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.netmonitor.agent</string>
+  <key>ProgramArguments</key><array><string>{sys.executable}</string></array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>"""
+            os.makedirs(os.path.dirname(plist_path), exist_ok=True)
+            with open(plist_path, "w") as f: f.write(plist)
+            os.system(f"launchctl load '{plist_path}'")
+        else:
+            if os.path.exists(plist_path):
+                os.system(f"launchctl unload '{plist_path}'")
+                os.remove(plist_path)
+    logger.info("开机自启: %s", "已启用" if enable else "已禁用")
 
 
-def get_network_speed(prev_counters, interval: float):
-    curr = psutil.net_io_counters(pernic=False)
-    if prev_counters is None:
-        return 0.0, 0.0, curr
-    bytes_sent = curr.bytes_sent - prev_counters.bytes_sent
-    bytes_recv = curr.bytes_recv - prev_counters.bytes_recv
-    upload_bps   = max(0, bytes_sent * 8 / interval)
-    download_bps = max(0, bytes_recv * 8 / interval)
-    return upload_bps, download_bps, curr
+# ══════════════════════════════════════════════════════
+# Agent 主逻辑
+# ══════════════════════════════════════════════════════
+class NetMonitorAgent:
+    def __init__(self):
+        self.cfg           = load_config()
+        self.status        = "连接中..."
+        self.up_bps        = 0.0
+        self.down_bps      = 0.0
+        self.running       = True
+        self.registered    = False
+        self.tray_icon     = None
+        self._lock         = threading.Lock()
 
+    # ── 首次配置向导 ─────────────────────────────────
+    def first_run_setup(self):
+        """首次运行：询问服务器地址和设备名称"""
+        # 尝试自动发现
+        server = discover_server()
+        if not server:
+            server = self.cfg.get("server", "")
+            server = show_input_dialog_server(server or "http://192.168.1.x:8866")
 
-def register_device(config: dict) -> bool:
-    url = f"{config['server']}/api/devices/register"
-    payload = {
-        "device_id": config["device_id"],
-        "name": config["device_name"],
-        "platform": platform.system().lower()
-    }
-    try:
-        resp = requests.post(url, json=payload, timeout=5)
-        resp.raise_for_status()
-        logger.info("设备注册成功: %s", config["device_name"])
-        return True
-    except requests.exceptions.ConnectionError:
-        logger.error("无法连接到服务器 %s", config["server"])
-        return False
-    except Exception as e:
-        logger.error("注册失败: %s", e)
-        return False
+        # 设备名称（默认 = 电脑用户名）
+        default_name = socket.gethostname()
+        name = self.cfg.get("device_name", "")
+        if not name:
+            name = show_input_dialog_name(default_name) or default_name
 
+        self.cfg.update({
+            "server":      server.rstrip("/"),
+            "device_id":   self.cfg.get("device_id", str(uuid.uuid4())),
+            "device_name": name,
+            "report_interval": 1,
+        })
+        save_config(self.cfg)
 
-def report_speed(config: dict, upload_bps: float, download_bps: float) -> bool:
-    url = f"{config['server']}/api/speed"
-    payload = {
-        "device_id": config["device_id"],
-        "upload_bps": upload_bps,
-        "download_bps": download_bps,
-        "timestamp": time.time()
-    }
-    try:
-        resp = requests.post(url, json=payload, timeout=3)
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.warning("上报失败: %s", e)
-        return False
+    def is_configured(self):
+        return bool(self.cfg.get("server") and self.cfg.get("device_name"))
 
+    # ── 注册 & 上报 ──────────────────────────────────
+    def register(self):
+        url = f"{self.cfg['server']}/api/devices/register"
+        payload = {
+            "device_id": self.cfg["device_id"],
+            "name":      self.cfg["device_name"],
+            "platform":  platform.system().lower(),
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=5)
+            resp.raise_for_status()
+            self.registered = True
+            logger.info("注册成功: %s", self.cfg["device_name"])
+            return True
+        except Exception as e:
+            logger.warning("注册失败: %s", e)
+            return False
 
-def format_speed(bps: float) -> str:
-    if bps >= 1_000_000:
-        return f"{bps/1_000_000:.1f} Mbps"
-    elif bps >= 1_000:
-        return f"{bps/1_000:.1f} Kbps"
-    return f"{bps:.0f} bps"
+    def report_speed(self):
+        url = f"{self.cfg['server']}/api/speed"
+        payload = {
+            "device_id":    self.cfg["device_id"],
+            "upload_bps":   self.up_bps,
+            "download_bps": self.down_bps,
+            "timestamp":    time.time(),
+        }
+        try:
+            resp = requests.post(url, json=payload, timeout=3)
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.debug("上报失败: %s", e)
+            return False
 
+    # ── 网速采集线程 ─────────────────────────────────
+    def monitor_loop(self):
+        prev    = psutil.net_io_counters(pernic=False)
+        last_t  = time.time()
+        fails   = 0
 
-def main():
-    config = load_or_create_config()
-    logger.info("设备 ID: %s", config["device_id"])
-
-    retry = 0
-    while not register_device(config):
-        retry += 1
-        wait = min(30, 5 * retry)
-        logger.info("将在 %d 秒后重试...", wait)
-        time.sleep(wait)
-
-    interval = config.get("report_interval", 1)
-    prev_counters = psutil.net_io_counters(pernic=False)
-    last_time = time.time()
-    consecutive_failures = 0
-
-    logger.info("开始监控 (Ctrl+C 停止)")
-    try:
-        while True:
+        while self.running:
+            interval = self.cfg.get("report_interval", 1)
             time.sleep(interval)
-            now = time.time()
-            elapsed = now - last_time
-            last_time = now
+            if not self.running: break
 
-            upload_bps, download_bps, prev_counters = get_network_speed(prev_counters, elapsed)
-            success = report_speed(config, upload_bps, download_bps)
+            now     = time.time()
+            elapsed = now - last_t
+            last_t  = now
+            curr    = psutil.net_io_counters(pernic=False)
 
-            if success:
-                consecutive_failures = 0
-                sys.stdout.write(
-                    f"\r↑ {format_speed(upload_bps):>12}  ↓ {format_speed(download_bps):>12}    "
+            with self._lock:
+                self.up_bps   = max(0, (curr.bytes_sent - prev.bytes_sent) * 8 / elapsed)
+                self.down_bps = max(0, (curr.bytes_recv - prev.bytes_recv) * 8 / elapsed)
+            prev = curr
+
+            if not self.registered:
+                if self.register():
+                    self._set_status("已连接", ICON_GREEN)
+                else:
+                    self._set_status("连接失败，重试中...", ICON_RED)
+                    continue
+
+            if self.report_speed():
+                fails = 0
+                self._set_status(
+                    f"已连接 | ↑{self._fmt(self.up_bps)} ↓{self._fmt(self.down_bps)}",
+                    ICON_GREEN
                 )
-                sys.stdout.flush()
             else:
-                consecutive_failures += 1
-                if consecutive_failures >= 5:
-                    logger.warning("连续5次上报失败，尝试重新注册...")
-                    register_device(config)
-                    consecutive_failures = 0
-    except KeyboardInterrupt:
-        print("\n监控已停止")
+                fails += 1
+                if fails >= 5:
+                    self.registered = False
+                    fails = 0
+                    self._set_status("连接断开，重连中...", ICON_YELLOW)
+
+    def _set_status(self, text, icon_fn):
+        self.status = text
+        if self.tray_icon:
+            try:
+                self.tray_icon.icon    = icon_fn()
+                self.tray_icon.title   = f"NetMonitor — {text}"
+            except Exception:
+                pass
+
+    @staticmethod
+    def _fmt(bps):
+        if bps >= 1e6: return f"{bps/1e6:.1f}Mbps"
+        if bps >= 1e3: return f"{bps/1e3:.0f}Kbps"
+        return f"{bps:.0f}bps"
+
+    # ── 托盘菜单 ─────────────────────────────────────
+    def _menu_status(self):
+        return pystray.MenuItem(lambda item: self.status, None, enabled=False)
+
+    def _menu_change_name(self, icon, item):
+        new_name = show_input_dialog_name(self.cfg.get("device_name", ""))
+        if new_name and new_name != self.cfg.get("device_name"):
+            self.cfg["device_name"] = new_name
+            save_config(self.cfg)
+            self.registered = False  # 触发重新注册
+            logger.info("设备名称改为: %s", new_name)
+
+    def _menu_change_server(self, icon, item):
+        new_srv = show_input_dialog_server(self.cfg.get("server", ""))
+        if new_srv and new_srv != self.cfg.get("server"):
+            self.cfg["server"] = new_srv.rstrip("/")
+            save_config(self.cfg)
+            self.registered = False
+            logger.info("服务器改为: %s", new_srv)
+
+    def _menu_startup_toggle(self, icon, item):
+        current = is_startup_enabled()
+        set_startup(not current)
+        # 更新菜单 checked 状态需刷新菜单
+        icon.update_menu()
+
+    def _menu_quit(self, icon, item):
+        self.running = False
+        icon.stop()
+
+    def build_menu(self):
+        return pystray.Menu(
+            self._menu_status(),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("修改设备名称...", self._menu_change_name),
+            pystray.MenuItem("修改服务器地址...", self._menu_change_server),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "开机自启",
+                self._menu_startup_toggle,
+                checked=lambda item: is_startup_enabled(),
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("退出 NetMonitor", self._menu_quit),
+        )
+
+    # ── 启动入口 ─────────────────────────────────────
+    def run(self):
+        if not self.is_configured():
+            self.first_run_setup()
+
+        # 启动网速采集线程
+        t = threading.Thread(target=self.monitor_loop, daemon=True)
+        t.start()
+
+        # 创建托盘图标（主线程阻塞）
+        self.tray_icon = pystray.Icon(
+            name="NetMonitor",
+            icon=ICON_YELLOW(),
+            title="NetMonitor — 正在连接...",
+            menu=self.build_menu(),
+        )
+        self.tray_icon.run()
 
 
+# ══════════════════════════════════════════════════════
+# 入口
+# ══════════════════════════════════════════════════════
 if __name__ == "__main__":
-    main()
+    agent = NetMonitorAgent()
+    agent.run()
