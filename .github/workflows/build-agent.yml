@@ -61,7 +61,7 @@ jobs:
   # Intel Mac 用此包亦可通过 Rosetta2 运行
   # ══════════════════════════════════════════════════
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +70,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        run: pip install pyinstaller psutil requests pystray Pillow
+        run: pip install pyinstaller psutil requests pystray Pillow --break-system-packages
 
       - name: Build .app
         working-directory: agent
@@ -111,7 +111,7 @@ jobs:
   # 支持 macOS 10.15 (Catalina) 及以上
   # ══════════════════════════════════════════════════
   build-macos-intel:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
