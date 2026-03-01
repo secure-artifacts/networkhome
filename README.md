@@ -2,6 +2,12 @@
 
 > 实时监控家里所有电脑的上传/下载速度，网页可视化，支持 Windows 和 macOS
 
+<p align="center">
+  <img src="screenshot/realtime_chart.png" width="48%" />
+  <img src="screenshot/calendar.png" width="48%" />
+  <br><i>NetMonitor 仪表盘概览</i>
+</p>
+
 ## 快速开始
 
 ### 第一步：在服务器电脑（选一台固定开机的 Windows）上安装服务器
