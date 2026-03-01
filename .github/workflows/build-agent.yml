@@ -112,7 +112,6 @@ jobs:
   # ══════════════════════════════════════════════════
   build-macos-intel:
     runs-on: macos-13
-    continue-on-error: true   # Intel runner 不可用时不阻塞整体发布
     steps:
       - uses: actions/checkout@v4
 
@@ -165,7 +164,7 @@ jobs:
   # ══════════════════════════════════════════════════
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [ build-windows, build-macos, build-server-windows ]
+    needs: [ build-windows, build-macos, build-macos-intel, build-server-windows ]
     runs-on: ubuntu-latest
     permissions:
       contents: write
