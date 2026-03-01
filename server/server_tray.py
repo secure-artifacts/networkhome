@@ -229,6 +229,7 @@ class ServerTray:
                 port=SERVER_PORT,
                 log_level="warning",   # 减少噪音
                 access_log=False,
+                log_config=None,
             )
         except Exception as e:
             logger.error("Server error: %s", e)

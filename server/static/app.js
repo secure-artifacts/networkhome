@@ -144,9 +144,26 @@ async function fetchPeakHistory(forceFromTs = 0, forceToTs = 0) {
         const json = await res.json();
         const data = json.data || [];
 
+        // Connect logic to ensure trailing blanks show 0 instead of stretching across void
+        const zeroFilledData = [];
+        if (data.length > 0) {
+            let lastTs = data[0].timestamp;
+            for (let i = 0; i < data.length; i++) {
+                const pt = data[i];
+                // Insert zero-points for missing periods > threshold (e.g. 2 x bucket size)
+                // We'll use 5 mins (300) to keep it safe and draw a drop-off line quickly
+                if (pt.timestamp - lastTs > 300) {
+                    zeroFilledData.push({ x: (lastTs + 1) * 1000, y: 0, _isGap: true }); // drop to zero right after offline
+                    zeroFilledData.push({ x: (pt.timestamp - 1) * 1000, y: 0, _isGap: true }); // stay zero until right before back online
+                }
+                zeroFilledData.push({ x: pt.timestamp * 1000, y_up: pt.upload_bps, y_down: pt.download_bps });
+                lastTs = pt.timestamp;
+            }
+        }
+
         // Map to {x,y} format
-        peakUpData = data.map(d => ({ x: d.timestamp * 1000, y: d.upload_bps }));
-        peakDownData = data.map(d => ({ x: d.timestamp * 1000, y: d.download_bps }));
+        peakUpData = zeroFilledData.map(d => ({ x: d.x, y: d._isGap ? 0 : d.y_up }));
+        peakDownData = zeroFilledData.map(d => ({ x: d.x, y: d._isGap ? 0 : d.y_down }));
 
         peakChart.data.datasets[0].data = peakUpData;
         peakChart.data.datasets[1].data = peakDownData;
@@ -610,8 +627,9 @@ function handleSpeedUpdate(msg) {
 
     if (isCurrentMonth && (upload_bps > 0 || download_bps > 0)) {
         if (!calData[todayStr]) calData[todayStr] = { upload_bytes: 0, download_bytes: 0 };
-        calData[todayStr].upload_bytes += Math.round(upload_bps || 0);
-        calData[todayStr].download_bytes += Math.round(download_bps || 0);
+        // convert bps to bytes (bps / 8) because WS triggers every 1s
+        calData[todayStr].upload_bytes += (upload_bps || 0) / 8;
+        calData[todayStr].download_bytes += (download_bps || 0) / 8;
         changed = true;
     }
 

@@ -304,6 +304,17 @@ async def get_daily_stats(year: int, month: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         
+        # Determine the last aggregated hour to cleanly append real-time data
+        cursor_hr = await db.execute("SELECT MAX(hour_start) as max_hr FROM hourly_stats")
+        row_hr = await cursor_hr.fetchone()
+        last_hr = float(row_hr["max_hr"]) if row_hr and row_hr["max_hr"] else 0.0
+        
+        # rt_since needs to start right after the last aggregated hour, or from `since` if no aggregations exist
+        rt_since = max(since, last_hr + 3600 if last_hr > 0 else 0)
+        
+        if rt_since > until:
+            rt_since = until + 1
+
         query = """
         WITH HourlyData AS (
             SELECT

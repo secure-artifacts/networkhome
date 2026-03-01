@@ -208,6 +208,22 @@ async def report_speed(request: Request, body: dict = Body(...)):
 # ──────────────────────────────────────────────
 # 统计 API（历史数据）
 # ──────────────────────────────────────────────
+@app.get("/api/stats/daily")
+async def get_daily_stats(year: int = 0, month: int = 0):
+    """全设备合计，返回指定年月内每天的流量（用于月历热点图）"""
+    now = datetime.now(timezone.utc)
+    y = year  if year  > 0 else now.year
+    m = month if month > 0 else now.month
+    rows = await db.get_daily_stats(y, m)
+    return {"year": y, "month": m, "days": rows}
+
+
+@app.get("/api/stats/aggregate")
+async def get_aggregate_speed(seconds: int = 300, from_ts: int = 0, to_ts: int = 0):
+    """全设备合计速度时序，用于峰值图时间窗口切换"""
+    rows = await db.get_aggregate_speed_history(seconds, from_ts, to_ts)
+    return {"seconds": seconds, "data": rows}
+
 @app.get("/api/stats/{device_id}")
 async def get_stats(
     device_id: str,
@@ -264,21 +280,7 @@ async def get_device_weekly(device_id: str, weeks: int = 4):
     return {"device_id": device_id, "weeks": weeks, "rows": data}
 
 
-@app.get("/api/stats/daily")
-async def get_daily_stats(year: int = 0, month: int = 0):
-    """全设备合计，返回指定年月内每天的流量（用于月历热点图）"""
-    now = datetime.now(timezone.utc)
-    y = year  if year  > 0 else now.year
-    m = month if month > 0 else now.month
-    rows = await db.get_daily_stats(y, m)
-    return {"year": y, "month": m, "days": rows}
 
-
-@app.get("/api/stats/aggregate")
-async def get_aggregate_speed(seconds: int = 300, from_ts: int = 0, to_ts: int = 0):
-    """全设备合计速度时序，用于峰值图时间窗口切换"""
-    rows = await db.get_aggregate_speed_history(seconds, from_ts, to_ts)
-    return {"seconds": seconds, "data": rows}
 
 @app.get("/api/realtime/{device_id}")
 async def get_realtime(device_id: str, seconds: int = 300):
