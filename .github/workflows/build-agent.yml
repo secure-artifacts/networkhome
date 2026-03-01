@@ -111,13 +111,14 @@ jobs:
   # 支持 macOS 10.15 (Catalina) 及以上
   # ══════════════════════════════════════════════════
   build-macos-intel:
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: 'x64'
 
       - name: Install deps
         run: pip install pyinstaller psutil requests pystray Pillow --break-system-packages
