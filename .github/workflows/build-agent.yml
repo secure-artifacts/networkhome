@@ -121,7 +121,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        run: pip install pyinstaller psutil requests pystray Pillow
+        run: pip install pyinstaller psutil requests pystray Pillow --break-system-packages
 
       - name: Build Intel .app
         working-directory: agent
@@ -151,6 +151,7 @@ jobs:
             --no-internet-enable \
             "NetMonitor-Agent-Mac-Intel.dmg" "dist/" || \
           (cd dist && zip -r ../NetMonitor-Agent-Mac-Intel.zip "NetMonitor Agent Intel.app")
+          echo "Packaging step completed."
 
       - uses: actions/upload-artifact@v4
         with:
