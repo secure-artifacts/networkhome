@@ -4,7 +4,7 @@
 ; 自动创建桌面快捷方式 & 开始菜单项
 
 #define AppName      "NetMonitor Agent"
-#define AppVersion   "1.9"
+#define AppVersion   "2.0.1"
 #define AppPublisher "NetMonitor"
 #define AppExe       "NetMonitor-Agent.exe"
 

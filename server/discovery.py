@@ -18,7 +18,7 @@ async def run_broadcaster(http_port: int = 8866):
     payload = json.dumps({
         "service": "netmonitor",
         "port": http_port,
-        "version": "1.9"
+        "version": "2.0.1"
     }).encode()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
