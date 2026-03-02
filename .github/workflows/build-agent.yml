@@ -195,6 +195,8 @@ jobs:
             release/NetMonitor-Server-Setup.exe
             release/NetMonitor-Agent-Mac.dmg
             release/NetMonitor-Agent-Mac.zip
+            release/NetMonitor-Agent-Mac-Intel.dmg
+            release/NetMonitor-Agent-Mac-Intel.zip
           body: |
             ## NetMonitor ${{ github.ref_name }}
 
