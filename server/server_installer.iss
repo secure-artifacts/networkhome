@@ -2,7 +2,7 @@
 ; 生成: NetMonitor-Server-Setup.exe
 
 #define AppName      "NetMonitor Server"
-#define AppVersion   "2.0.1"
+#define AppVersion   "2.0.2"
 #define AppPublisher "NetMonitor"
 #define AppExe       "NetMonitor-Server.exe"
 
