@@ -228,7 +228,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        run: pip install pyinstaller psutil pystray Pillow uvicorn fastapi aiosqlite apscheduler python-multipart websockets
+        run: pip install pyinstaller psutil pystray Pillow uvicorn fastapi aiosqlite apscheduler "python-multipart>=0.0.22" websockets
 
       - name: Build Server .exe
         working-directory: server
